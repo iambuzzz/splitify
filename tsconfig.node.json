@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "tests/db",
+    "tests/api",
+    "tests/pg",
+    "apps/api/src"
+  ],
+  "exclude": []
+}

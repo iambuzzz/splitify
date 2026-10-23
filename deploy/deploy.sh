@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Builds the API (one bundled file) and the web app on this Mac, puts both on the server,
+# and restarts the API. Run from anywhere: deploy/deploy.sh
+set -euo pipefail
+cd "$(dirname "$0")/.."
+TARGET=${SPLITIFY_SSH:-ubuntu@13.203.57.144}
+KEY=${SPLITIFY_KEY:-$HOME/.ssh/splitify-key.pem}
+API=${SPLITIFY_API_URL:-https://api.splitify.iambuzzdev.in}
+SSH=(ssh -i "$KEY" "$TARGET")
+
+echo "1/4 Building the API"
+rm -rf dist
+node_modules/.bin/esbuild apps/api/src/index.ts --bundle --platform=node --format=esm --target=node22 \
+  --outfile=dist/api/server.mjs --external:pg-native --log-level=warning \
+  --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+cp supabase/prod-ca-2021.crt dist/api/supabase-ca.crt
+
+echo "2/4 Building the web app (API: $API)"
+# A value set here wins over apps/client/.env.local, which points at the local API.
+(cd apps/client && EXPO_PUBLIC_API_URL="$API" npx expo export --platform web --output-dir ../../dist/web >/dev/null)
+grep -rqF "$API" dist/web/_expo || { echo "The web build does not point at $API"; exit 1; }
+
+echo "3/4 Copying to the server"
+rsync -az --delete -e "ssh -i $KEY" dist/api/ "$TARGET:/srv/splitify/api/"
+rsync -az --delete -e "ssh -i $KEY" dist/web/ "$TARGET:/srv/splitify/web/"
+rsync -az -e "ssh -i $KEY" deploy/Caddyfile deploy/splitify-api.service "$TARGET:/tmp/"
+
+echo "4/4 Restarting"
+"${SSH[@]}" 'set -e
+  sudo install -m 0644 /tmp/Caddyfile /etc/caddy/Caddyfile
+  sudo install -m 0644 /tmp/splitify-api.service /etc/systemd/system/splitify-api.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable --quiet splitify-api
+  sudo systemctl restart splitify-api
+  sudo systemctl reload caddy
+  for i in $(seq 1 20); do curl -fsS http://127.0.0.1:3001/health >/dev/null 2>&1 && break; sleep 1; done
+  curl -fsS http://127.0.0.1:3001/health >/dev/null || { sudo journalctl -u splitify-api -n 30 --no-pager; exit 1; }'
+echo "Done: https://${API#https://api.} and $API"

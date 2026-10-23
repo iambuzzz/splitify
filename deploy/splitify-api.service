@@ -1,0 +1,30 @@
+[Unit]
+Description=Splitify API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=splitify
+Group=splitify
+WorkingDirectory=/srv/splitify/api
+# Node reads the env file itself, with the same rules as .env.local on the Mac.
+ExecStart=/usr/bin/node --env-file=/etc/splitify/api.env /srv/splitify/api/server.mjs
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=3
+MemoryMax=600M
+
+# The API needs the network and read access to its own files, nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
