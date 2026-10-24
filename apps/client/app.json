@@ -7,16 +7,22 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "in.iambuzzdev.splitify",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#C8FF2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "in.iambuzzdev.splitify",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -26,7 +32,20 @@
     "scheme": "splitify",
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#F4F6F4",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#050506"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
