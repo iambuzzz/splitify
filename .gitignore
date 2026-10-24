@@ -9,3 +9,6 @@ coverage/
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/
+
+# Receipt files in local development (RECEIPTS_DIR)
+.receipts/

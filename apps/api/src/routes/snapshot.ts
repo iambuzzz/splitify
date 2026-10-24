@@ -5,7 +5,12 @@ import { expenseDetails } from './expenses';
 import { groupDetail } from './groups';
 import { listSettlements } from './settlements';
 
-export function snapshotRoutes(r: Router) {
+/** What this server can do, so the app shows only what works (e.g. adding photos). */
+export interface Features {
+  receipts: boolean;
+}
+
+export function snapshotRoutes(r: Router, features: Features = { receipts: false }) {
   /**
    * Everything one group screen needs, in one call: members, balances, every expense in full,
    * and payments. Fine for alpha-sized groups (up to 500 expenses); the cursor-based sync in M6
@@ -24,6 +29,7 @@ export function snapshotRoutes(r: Router) {
       expenses,
       settlements: await listSettlements(tx, m.group.id),
       ...(await conversationSnapshot(tx, m.group.id)),
+      features,
     };
   });
 }

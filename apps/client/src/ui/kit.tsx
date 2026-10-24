@@ -391,7 +391,7 @@ export function Chip({ label, on, onPress }: { label: string; on?: boolean; onPr
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ selected: !!on }}
+      aria-pressed={!!on}
       onPress={onPress}
       style={{
         height: 38,

@@ -14,6 +14,7 @@ import type { Router } from '../app';
 import { type Membership, activeMember, activeMemberIds, membership, recordEvent, reviewPolicy, reviewerIds } from '../context';
 import type { Tx } from '../db';
 import { ApiError, notFound, workflowError } from '../errors';
+import { RECEIPT_COLUMNS, type ReceiptRow, hasReceiptsTable, receiptJson } from './receipts';
 import { uuidv7 } from '../ids';
 import * as s from '../schemas';
 
@@ -716,6 +717,7 @@ interface DetailRows {
   suggestions: SuggestionRow[];
   messages: MessageRow[];
   seen: SeenRow[];
+  receipts: ReceiptRow[];
   inExpense: boolean;
   /** Signed-up current members (who may review). */
   reviewers: Set<string>;
@@ -735,7 +737,11 @@ async function detail(tx: Tx, x: Loaded) {
   const suggestions = await tx.query<SuggestionRow>(`select ${SUGGESTION_COLUMNS} from app.suggestions where expense_id = $1 order by created_at desc`, [e.id]);
   const messages = await tx.query<MessageRow>(`select ${MESSAGE_COLUMNS} from app.messages where expense_id = $1 order by created_at, id`, [e.id]);
   const seen = await tx.query<SeenRow>(`select member_id, version, seen_at from app.seen where entity_type = 'expense' and entity_id = $1 order by seen_at`, [e.id]);
+  const receipts = (await hasReceiptsTable(tx))
+    ? (await tx.query<ReceiptRow>(`select ${RECEIPT_COLUMNS} from app.receipts where expense_id = $1 and deleted_at is null order by created_at, id`, [e.id])).rows
+    : [];
   return render(x, {
+    receipts,
     disputes: disputes.rows,
     suggestions: suggestions.rows,
     messages: messages.rows,
@@ -779,6 +785,14 @@ export async function expenseDetails(tx: Tx, m: Membership, ids: string[]) {
     `select entity_id, member_id, version, seen_at from app.seen where entity_type = 'expense' and entity_id = any ($1::uuid[]) order by seen_at`,
     [ids],
   );
+  const receipts = (await hasReceiptsTable(tx))
+    ? (
+        await tx.query<ReceiptRow & { expense_id: string }>(
+          `select expense_id, ${RECEIPT_COLUMNS} from app.receipts where expense_id = any ($1::uuid[]) and deleted_at is null order by created_at, id`,
+          [ids],
+        )
+      ).rows
+    : [];
   const inExp = await tx.query<{ id: string; ok: boolean }>('select id, app.is_in_expense(id) as ok from unnest ($1::uuid[]) as id', [ids]);
   const reviewers = await reviewerIds(tx, m.group.id);
 
@@ -793,6 +807,7 @@ export async function expenseDetails(tx: Tx, m: Membership, ids: string[]) {
   const suggestionsOf = by(suggestions.rows, 'expense_id');
   const messagesOf = by(messages.rows, 'expense_id');
   const seenOf = by(seen.rows, 'entity_id');
+  const receiptsOf = by(receipts, 'expense_id');
   const inExpense = new Map(inExp.rows.map((r) => [r.id, r.ok]));
   const policy = reviewPolicy(m.group);
   const byId = new Map(rows.rows.map((e) => [e.id, e]));
@@ -813,6 +828,7 @@ export async function expenseDetails(tx: Tx, m: Membership, ids: string[]) {
           suggestions: suggestionsOf.get(id) ?? [],
           messages: messagesOf.get(id) ?? [],
           seen: seenOf.get(id) ?? [],
+          receipts: receiptsOf.get(id) ?? [],
           inExpense: inExpense.get(id) ?? false,
           reviewers,
         },
@@ -897,6 +913,7 @@ function render(x: Loaded, d: DetailRows) {
     /** Only the people in the expense can read and write its thread (I11 for conversation). */
     canChat: m.status === 'active' && d.inExpense,
     seen: d.seen.map((s) => ({ memberId: s.member_id, version: s.version, seenAt: s.seen_at })),
+    receipts: d.receipts.map(receiptJson),
   };
 }
 

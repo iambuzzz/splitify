@@ -7,10 +7,12 @@ import { z } from 'zod';
 import type { VerifyToken } from './auth';
 import type { Db, Tx } from './db';
 import type { EmailSignIn } from './email-sign-in';
+import type { ReceiptStore } from './receipts-store';
 import { ApiError, toApiError } from './errors';
 import { conversationRoutes } from './routes/conversation';
 import { expenseRoutes } from './routes/expenses';
 import { groupRoutes } from './routes/groups';
+import { receiptFileRoutes, receiptRoutes } from './routes/receipts';
 import { settlementRoutes } from './routes/settlements';
 import { snapshotRoutes } from './routes/snapshot';
 
@@ -26,6 +28,8 @@ export interface AppDeps {
   trustProxy?: number | false;
   /** Sign-in emails we send ourselves (code + button). Without it the app uses Supabase's own email. */
   emailSignIn?: EmailSignIn;
+  /** Where receipt photos and PDFs are kept. Without it, attaching them answers 503. */
+  receipts?: ReceiptStore;
 }
 
 /** Invite tokens and sign-in emails: slow down anyone trying them in bulk. */
@@ -66,7 +70,7 @@ declare module 'fastify' {
   }
 }
 
-export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], rateLimitPerMinute = 300, trustProxy = false, emailSignIn }: AppDeps): FastifyInstance {
+export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], rateLimitPerMinute = 300, trustProxy = false, emailSignIn, receipts }: AppDeps): FastifyInstance {
   const app = Fastify({
     logger,
     bodyLimit: 256 * 1024,
@@ -214,8 +218,10 @@ export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], ra
     groupRoutes(router);
     expenseRoutes(router);
     settlementRoutes(router);
-    snapshotRoutes(router);
+    snapshotRoutes(router, { receipts: !!receipts });
     conversationRoutes(router);
+    receiptRoutes(router);
+    receiptFileRoutes(scope, db, receipts);
   });
   return app;
 }

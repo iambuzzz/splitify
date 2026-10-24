@@ -116,7 +116,18 @@ Expense content is `{ title, notes?, category?, date, currency, total, rate?, ra
 ### Snapshot
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/groups/:groupId/snapshot` | Group detail plus every expense in full (up to 500) plus payments, in one call. The app loads this per group. The cursor-based sync replaces it in M6 |
+| GET | `/groups/:groupId/snapshot` | Group detail plus every expense in full (up to 500) plus payments, in one call. The app loads this per group. The cursor-based sync replaces it in M6. Also `features: { receipts }`: whether this server can store receipt files |
+
+### Receipts (M5)
+Photos and PDFs of a bill, on an expense. Everyone who can see the expense can see them. The file is stored by the API only (a folder with `RECEIPTS_DIR`, or a private Supabase Storage bucket with `RECEIPTS_BUCKET`); without either, uploads answer 503 `receipts_not_configured` and `features.receipts` is false. Expense details (and snapshots) carry `receipts: [{ id, uploadedBy, contentType, byteSize, width, height, createdAt }]`.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/expenses/:expenseId/receipts?id=<uuid>&width=&height=` | The body is the file itself, with its `Content-Type`: `image/jpeg`, `image/png`, `image/webp` or `application/pdf`, up to 10 MB. The bytes must match the type (checked from the file's first bytes, else 415). Current members only; up to 20 per expense. The `id` makes a retry safe (same id again: 409). Answers 201 `{ receipt, duplicateOf }`: `duplicateOf` names another expense in the group with the same file (sha-256), a hint of a duplicate expense. The app shrinks photos to 1600 px JPEG first, which also drops GPS and camera data |
+| GET | `/v1/receipts/:id` | The file, for anyone who can see the expense (404 otherwise). Sent with `nosniff`, a sandboxing CSP and `private` caching |
+| POST | `/receipts/:id/delete` | `{}`. Whoever added it, the expense's creator or payer, or an admin. The row is kept with `deleted_at` (and the file stays in storage); `receipt_added` and `receipt_removed` go to the activity trail |
+
+Imports from Splitwise use the normal `POST /groups/:groupId/expenses` with an `exact` split and an id the app derives from the row (UUID v8 of a SHA-256), so importing the same file twice answers 409 for rows already in.
 
 ### Conversation, seen and live updates
 The rules here were agreed with the user on 2026-10-23: conversation stays about money, there is no general chat, no online status and no per-message ticks.

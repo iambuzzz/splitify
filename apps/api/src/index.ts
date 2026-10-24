@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { buildApp } from './app';
 import { supabaseResendSignIn } from './email-sign-in';
 import { supabaseVerifier } from './auth';
+import { folderReceiptStore, supabaseReceiptStore } from './receipts-store';
 import { pgDb } from './db';
 
 const env = z
@@ -29,6 +30,10 @@ const env = z
     EMAIL_FROM: z.string().default('Splitify <onboarding@resend.dev>'),
     /** The web app's public address, for the button in sign-in emails (default: the first CORS origin). */
     APP_URL: z.url().optional(),
+    // Receipt photos and PDFs: a folder (local development) or a private Supabase Storage bucket
+    // (production, needs SUPABASE_SECRET_KEY). Neither: attaching is switched off.
+    RECEIPTS_DIR: z.string().min(1).optional(),
+    RECEIPTS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9._-]{2,62}$/).optional(),
   })
   .safeParse(process.env);
 
@@ -40,8 +45,27 @@ if (!env.success) {
 
 // .env.local lives at the repository root, so relative paths in it are relative to the root too.
 const ROOT = resolve(import.meta.dirname, '../../..');
-const { DATABASE_URL, SUPABASE_URL, DATABASE_CA_CERT, PORT, HOST, CORS_ORIGINS, RATE_LIMIT_PER_MINUTE, TRUST_PROXY, SUPABASE_SECRET_KEY, RESEND_API_KEY, EMAIL_FROM, APP_URL } =
-  env.data;
+const {
+  DATABASE_URL,
+  SUPABASE_URL,
+  DATABASE_CA_CERT,
+  PORT,
+  HOST,
+  CORS_ORIGINS,
+  RATE_LIMIT_PER_MINUTE,
+  TRUST_PROXY,
+  SUPABASE_SECRET_KEY,
+  RESEND_API_KEY,
+  EMAIL_FROM,
+  APP_URL,
+  RECEIPTS_DIR,
+  RECEIPTS_BUCKET,
+} = env.data;
+const receipts = RECEIPTS_DIR
+  ? folderReceiptStore(resolve(ROOT, RECEIPTS_DIR))
+  : RECEIPTS_BUCKET && SUPABASE_SECRET_KEY
+    ? supabaseReceiptStore({ supabaseUrl: SUPABASE_URL, secretKey: SUPABASE_SECRET_KEY, bucket: RECEIPTS_BUCKET })
+    : undefined;
 const db = pgDb({ connectionString: DATABASE_URL, caCert: DATABASE_CA_CERT ? readFileSync(resolve(ROOT, DATABASE_CA_CERT), 'utf8') : undefined });
 const app = buildApp({
   db,
@@ -54,9 +78,11 @@ const app = buildApp({
     SUPABASE_SECRET_KEY && RESEND_API_KEY
       ? supabaseResendSignIn({ supabaseUrl: SUPABASE_URL, secretKey: SUPABASE_SECRET_KEY, resendKey: RESEND_API_KEY, from: EMAIL_FROM, appUrl: APP_URL ?? CORS_ORIGINS[0]! })
       : undefined,
+  receipts,
 });
 // Names only, never the values.
 console.log(SUPABASE_SECRET_KEY && RESEND_API_KEY ? 'Sign-in emails: sent by the API (Resend)' : 'Sign-in emails: Supabase built-in (set SUPABASE_SECRET_KEY and RESEND_API_KEY for codes)');
+console.log(RECEIPTS_DIR ? 'Receipts: kept in a local folder' : receipts ? 'Receipts: Supabase Storage' : 'Receipts: off (set RECEIPTS_DIR or RECEIPTS_BUCKET)');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {

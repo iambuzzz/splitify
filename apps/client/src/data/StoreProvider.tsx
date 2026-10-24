@@ -1,10 +1,11 @@
 import type { Session } from '@supabase/supabase-js';
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
-import { ApiError, api, configureApi } from './api';
+import { ApiError, api, configureApi, fetchReceipt, uploadReceipt } from './api';
+import { uuidv7 } from './ids';
 import { config, remoteEnabled } from './config';
-import { type Action, ME, type SeenMark, type State, actionGroup, reducer, seed } from './model';
-import { type Pending, type Snap, buildRemote, fetchGroupIds, fetchPulse, fetchSnapshot, perform, sendSeen, withPending } from './remote';
+import { type Action, ME, type Receipt, type SeenMark, type State, actionGroup, reducer, seed } from './model';
+import { type Pending, type Snap, buildRemote, fetchGroupIds, fetchPulse, fetchSnapshot, perform, sendSeen, settled, withPending } from './remote';
 import { supabase } from './supabase';
 
 export interface InvitePreview {
@@ -34,6 +35,16 @@ export type SeenItem = { type: 'expense' | 'settlement' | 'pair'; id: string; ve
 interface Store {
   state: State;
   dispatch: (a: Action) => void;
+  /** Sends one action and waits: throws if the server refuses it. For step-by-step work like an import. */
+  run(a: Action): Promise<void>;
+  /** Fetches the latest state for these groups (after a batch of `run`s). */
+  refresh(groupIds?: string[]): Promise<void>;
+  /** What this server supports (demo: everything). */
+  features: { receipts: boolean };
+  /** Attaches a prepared photo or PDF to an expense; says if the same file is already on an expense. */
+  addReceipt(expenseId: string, file: ReceiptFile): Promise<{ duplicateOf: DuplicateOf | null }>;
+  /** A URL that shows a receipt in this browser (loaded once, then kept). */
+  receiptUrl(r: Receipt): Promise<string>;
   /** Tell the others I've seen these money items (signed in only; repeated calls are cheap). */
   markSeen(groupId: string, items: SeenItem[]): void;
   /** Null in demo mode. */
@@ -45,7 +56,31 @@ interface Store {
   clearError(): void;
 }
 
+export interface ReceiptFile {
+  blob: Blob;
+  type: string;
+  width?: number;
+  height?: number;
+}
+export interface DuplicateOf {
+  expenseId: string;
+  title: string;
+  sameExpense: boolean;
+}
+
 const StoreContext = createContext<Store | null>(null);
+
+// Receipts are fetched with the sign-in token, then shown from a local blob: URL (kept while the app is open).
+const receiptUrls = new Map<string, Promise<string>>();
+const remoteReceiptUrl = (r: Receipt) => {
+  let url = receiptUrls.get(r.id);
+  if (!url) {
+    url = fetchReceipt(r.id).then((b) => URL.createObjectURL(b));
+    url.catch(() => receiptUrls.delete(r.id));
+    receiptUrls.set(r.id, url);
+  }
+  return url;
+};
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   return remoteEnabled ? <RemoteStore>{children}</RemoteStore> : <DemoStore>{children}</DemoStore>;
@@ -54,7 +89,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 function DemoStore({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer((s: State, a: Action) => reducer(s, a), undefined, seed);
   return (
-    <StoreContext.Provider value={{ state, dispatch, markSeen: () => {}, account: null, sync: 'ready', error: null, clearError: () => {} }}>
+    <StoreContext.Provider
+      value={{
+        state,
+        dispatch,
+        run: async (a) => dispatch(a),
+        refresh: async () => {},
+        features: { receipts: true },
+        // Demo: the file stays in this browser.
+        async addReceipt(expenseId, file) {
+          const receipt: Receipt = { id: uuidv7(), by: ME, contentType: file.type, size: file.blob.size, at: new Date().toISOString(), localUrl: URL.createObjectURL(file.blob) };
+          dispatch({ type: 'add_receipt', id: expenseId, receipt });
+          return { duplicateOf: null };
+        },
+        receiptUrl: async (r) => r.localUrl ?? '',
+        markSeen: () => {},
+        account: null,
+        sync: 'ready',
+        error: null,
+        clearError: () => {},
+      }}
+    >
       {children}
     </StoreContext.Provider>
   );
@@ -262,15 +317,51 @@ function RemoteStore({ children }: { children: ReactNode }) {
       const before = latest.current;
       const group = actionGroup(before.state, a);
       const key = ++pendingKey.current;
-      // Shown at once, then replaced by what the API actually saved (or put back if it refused).
-      setPending((list) => [...list, { key, action: a, group, sentAt: ++seq.current }]);
+      const sentAt = ++seq.current;
+      // Shown at once, on top of the group as it was before (see withPending), until the server's own
+      // record of it is in. Several quick changes in one group share the same starting point.
+      setPending((list) => {
+        const open = group ? list.find((p) => p.group === group && !settled(p, loadedRef.current)) : undefined;
+        const base = !group ? undefined : open ? open.base : (loadedRef.current[group] ?? null);
+        return [...list, { key, action: a, group, sentAt, base }];
+      });
       perform(a, before)
         .catch((err) => setError(words(err)))
-        .then(() => reload(group ? [group] : undefined))
-        .finally(() => setPending((list) => list.filter((p) => p.key !== key)));
+        .then(() => {
+          const doneAt = ++seq.current;
+          setPending((list) => list.map((p) => (p.key === key ? { ...p, doneAt } : p)));
+          return reload(group ? [group] : undefined);
+        })
+        .finally(() => {
+          // Ungrouped changes have nothing to wait for; grouped ones are dropped below once confirmed.
+          setPending((list) => (group ? list.map((p) => (p.key === key ? { ...p, reloaded: true } : p)) : list.filter((p) => p.key !== key)));
+        });
     },
     [reload],
   );
+  // A group's changes are let go together, once all of them are confirmed, so none is drawn on a
+  // snapshot that doesn't have the others.
+  useEffect(() => {
+    const done = [...new Set(pending.map((p) => p.group))].filter((g) => g && pending.every((p) => p.group !== g || settled(p, snaps)));
+    if (done.length) setPending((list) => list.filter((p) => !done.includes(p.group) || !settled(p, snaps)));
+  }, [snaps, pending]);
+
+  const addReceipt = useCallback(
+    async (expenseId: string, file: ReceiptFile) => {
+      const group = latest.current.state.expenses.find((e) => e.id === expenseId)?.groupId;
+      const res = await uploadReceipt(expenseId, uuidv7(), file.blob, file.type, file.width && file.height ? { width: file.width, height: file.height } : undefined);
+      await reload(group ? [group] : undefined);
+      return { duplicateOf: (res.duplicateOf ?? null) as DuplicateOf | null };
+    },
+    [reload],
+  );
+
+  const run = useCallback(async (a: Action) => {
+    await perform(a, latest.current);
+  }, []);
+  const refresh = useCallback(async (groupIds?: string[]) => {
+    await reload(groupIds);
+  }, [reload]);
 
   const markSeen = useCallback((groupId: string, items: SeenItem[]) => {
     const key = (x: SeenItem) => `${groupId}|${x.type}|${x.id}|${x.version ?? ''}|${x.upTo ?? ''}`;
@@ -308,7 +399,20 @@ function RemoteStore({ children }: { children: ReactNode }) {
   };
 
   return (
-    <StoreContext.Provider value={{ state: remote.state, dispatch, markSeen, account, sync, error, clearError: () => setError(null) }}>
+    <StoreContext.Provider value={{
+        state: remote.state,
+        dispatch,
+        run,
+        refresh,
+        features: remote.features,
+        addReceipt,
+        receiptUrl: remoteReceiptUrl,
+        markSeen,
+        account,
+        sync,
+        error,
+        clearError: () => setError(null),
+      }}>
       {children}
     </StoreContext.Provider>
   );

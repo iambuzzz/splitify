@@ -27,15 +27,58 @@ export type ExpenseIcon = 'hotel' | 'food' | 'taxi' | 'home' | 'wifi' | 'cart' |
 
 export type SplitSpec =
   | { method: 'equal'; members: string[] }
-  /** Nights stayed or shares, per member; 0 = not included. */
-  | { method: 'shares'; shares: Record<string, number> };
+  /** Shares per member (1, 2, 1.5…); 0 = not included. */
+  | { method: 'shares'; shares: Record<string, number> }
+  /** Percent per member in basis points (2500 = 25%), summing to 10,000; 0 = not included. */
+  | { method: 'percent'; basisPoints: Record<string, number> }
+  /** Exact amounts per member, summing to the total (imports, and splits made elsewhere). */
+  | { method: 'exact'; amounts: Record<string, bigint> };
+
+const METHOD_WORDS: Record<SplitSpec['method'], string> = { equal: 'equally', shares: 'by shares', percent: 'by percentage', exact: 'by exact amounts' };
+/** How a split method reads in a sentence: "split equally", "split by shares", "split by percentage", "split by exact amounts". */
+export const methodWords = (m: SplitSpec['method']) => METHOD_WORDS[m];
+export const splitWords = (spec: SplitSpec) => methodWords(spec.method);
+
+/** Basis points as a percentage: 2500 → "25%", 3333 → "33.33%". */
+export const percentText = (bp: number) => `${(bp / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
+
+/** A typed percentage ("25", "33.33", "12.5%") in basis points; null if it isn't one. Blank is 0. */
+export function parsePercent(text: string): number | null {
+  const t = text.replace(/[%\s]/g, '');
+  if (t === '') return 0;
+  const m = /^(\d{1,3})(?:\.(\d{0,2}))?$/.exec(t);
+  if (!m) return null;
+  const bp = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+  return bp <= 10000 ? bp : null;
+}
+
+/** A typed number of shares ("1", "2", "1.5"); null if it isn't one. Blank is 0. */
+export function parseShares(text: string): number | null {
+  const t = text.trim();
+  if (t === '') return 0;
+  return /^\d{1,6}(\.\d{1,2})?$/.test(t) ? Number(t) : null;
+}
 
 export interface Version {
   n: number;
   total: bigint;
   split: SplitSpec;
   by: string;
+  /** Name and payer as of this version, and when it was made (ISO). Missing in some demo data. */
+  title?: string;
+  payer?: string;
+  at?: string;
 }
+
+/** One difference between two versions of an expense, in words the history can show. */
+export type Change =
+  | { kind: 'amount'; from: bigint; to: bigint }
+  | { kind: 'title'; from: string; to: string }
+  | { kind: 'payer'; from: string; to: string }
+  | { kind: 'method'; from: SplitSpec['method']; to: SplitSpec['method'] }
+  | { kind: 'share'; member: string; from: bigint; to: bigint }
+  | { kind: 'added'; member: string; to: bigint }
+  | { kind: 'removed'; member: string; from: bigint };
 
 export interface Suggestion {
   id: string;
@@ -85,6 +128,18 @@ export interface SeenMark {
   at: string;
 }
 
+/** A photo or PDF of the bill, attached to an expense. */
+export interface Receipt {
+  id: string;
+  by: string;
+  contentType: string;
+  size: number;
+  /** ISO time. */
+  at: string;
+  /** Demo mode only: the file, kept in this browser. */
+  localUrl?: string;
+}
+
 export interface Expense {
   id: string;
   groupId: string;
@@ -100,6 +155,7 @@ export interface Expense {
   /** Can I read and write its thread (am I in this expense)? */
   canChat: boolean;
   suggestions: Suggestion[];
+  receipts: Receipt[];
 }
 
 export interface Payment {
@@ -110,6 +166,8 @@ export interface Payment {
   amount: bigint;
   via: 'upi' | 'cash';
   status: 'awaiting' | 'confirmed' | 'declined';
+  /** When it was recorded (ISO). */
+  at?: string;
 }
 
 export interface Group {
@@ -146,6 +204,8 @@ export const abs = (v: bigint) => (v < 0n ? -v : v);
 
 export function toSplitInput(spec: SplitSpec): SplitInput {
   if (spec.method === 'equal') return { method: 'equal', members: spec.members };
+  if (spec.method === 'exact') return { method: 'exact', amounts: Object.entries(spec.amounts).filter(([, v]) => v > 0n).map(([memberId, amount]) => ({ memberId, amount })) };
+  if (spec.method === 'percent') return { method: 'percent', basisPoints: Object.entries(spec.basisPoints).filter(([, n]) => n > 0).map(([memberId, basisPoints]) => ({ memberId, basisPoints })) };
   return {
     method: 'shares',
     shares: Object.entries(spec.shares)
@@ -163,6 +223,26 @@ export function sharesFor(total: bigint, spec: SplitSpec, seed: string) {
 }
 
 export const current = (e: Expense): Version => e.versions[e.versions.length - 1]!;
+
+/** What changed from one version to the next: amount, name, payer, how it's split, and each person's share. */
+export function versionChanges(prev: Version, next: Version, seed: string): Change[] {
+  const out: Change[] = [];
+  if (prev.total !== next.total) out.push({ kind: 'amount', from: prev.total, to: next.total });
+  if (prev.title !== undefined && next.title !== undefined && prev.title !== next.title) out.push({ kind: 'title', from: prev.title, to: next.title });
+  if (prev.payer !== undefined && next.payer !== undefined && prev.payer !== next.payer) out.push({ kind: 'payer', from: prev.payer, to: next.payer });
+  if (prev.split.method !== next.split.method) out.push({ kind: 'method', from: prev.split.method, to: next.split.method });
+  const before = new Map((sharesFor(prev.total, prev.split, seed) ?? []).map((x) => [x.memberId, x.amount]));
+  const after = new Map((sharesFor(next.total, next.split, seed) ?? []).map((x) => [x.memberId, x.amount]));
+  for (const [member, to] of after) {
+    const from = before.get(member);
+    if (from === undefined || from === 0n) {
+      if (to !== 0n) out.push({ kind: 'added', member, to });
+    } else if (to === 0n) out.push({ kind: 'removed', member, from });
+    else if (from !== to) out.push({ kind: 'share', member, from, to });
+  }
+  for (const [member, from] of before) if (!after.has(member) && from !== 0n) out.push({ kind: 'removed', member, from });
+  return out;
+}
 
 function expensePostings(e: Expense): Posting[] {
   const v = current(e);
@@ -291,6 +371,51 @@ export function whyTrace(s: State, groupId: string, memberId = ME) {
   return rows;
 }
 
+/**
+ * The full "how it adds up" for one member: what they paid, their share of each expense, payments sent
+ * and received, everyone's balance, and the payments that settle it (which may be to someone they
+ * never shared a bill with: balances are pooled, then settled in the fewest payments).
+ */
+export function explainBalance(s: State, groupId: string, memberId = ME) {
+  const expenses: { id: string; title: string; date: string; paid: bigint; share: bigint; effect: bigint }[] = [];
+  let paid = 0n;
+  let share = 0n;
+  for (const e of groupExpenses(s, groupId)) {
+    const v = current(e);
+    const p = e.payer === memberId ? v.total : 0n;
+    const sh = sharesFor(v.total, v.split, e.id)?.find((x) => x.memberId === memberId)?.amount ?? 0n;
+    if (p === 0n && sh === 0n) continue;
+    paid += p;
+    share += sh;
+    expenses.push({ id: e.id, title: e.title, date: e.date, paid: p, share: sh, effect: p - sh });
+  }
+  const payments: { id: string; other: string; sent: boolean; amount: bigint }[] = [];
+  let sent = 0n;
+  let received = 0n;
+  for (const p of s.payments) {
+    if (p.groupId !== groupId || p.status !== 'confirmed' || (p.from !== memberId && p.to !== memberId)) continue;
+    const isSent = p.from === memberId;
+    if (isSent) sent += p.amount;
+    else received += p.amount;
+    payments.push({ id: p.id, other: isSent ? p.to : p.from, sent: isSent, amount: p.amount });
+  }
+  const balances = balancesOf(s, groupId)
+    .filter((b) => b.amount !== 0n)
+    .sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0));
+  return {
+    paid,
+    share,
+    sent,
+    received,
+    /** paid − share + sent − received: positive = gets money back. */
+    balance: balanceOf(s, groupId, memberId),
+    expenses,
+    payments,
+    balances,
+    plan: myTransfers(s, groupId, memberId),
+  };
+}
+
 /** Where an inbox item opens. */
 export const inboxHref = (i: InboxItem) =>
   i.withMember ? `/group/${i.groupId}/with/${i.withMember}` : i.expenseId ? `/group/${i.groupId}/expense/${i.expenseId}` : `/group/${i.groupId}/settle`;
@@ -370,6 +495,8 @@ export type Action =
   | { type: 'add_group'; id: string; name: string; kind: Group['kind']; memberNames: string[] }
   | { type: 'add_expense'; id: string; groupId: string; title: string; icon: ExpenseIcon; total: bigint; payer: string; split: SplitSpec }
   | { type: 'edit_expense'; id: string; title: string; total: bigint; payer: string; split: SplitSpec }
+  /** From a Splitwise file: a dated expense with exact shares (member id → amount, summing to `total`). */
+  | { type: 'import_expense'; id: string; groupId: string; title: string; date: string; total: bigint; payer: string; shares: Record<string, bigint> }
   | { type: 'suggest'; id: string; total: bigint; split: SplitSpec; reason: string }
   | { type: 'decide'; id: string; suggestionId: string; accept: boolean }
   /** A message in an expense's thread; `question` marks it as needing an answer. */
@@ -384,6 +511,8 @@ export type Action =
   | { type: 'delete'; id: string }
   | { type: 'restore'; id: string }
   | { type: 'record_payment'; groupId: string; from: string; to: string; amount: bigint; via: 'upi' | 'cash' }
+  | { type: 'add_receipt'; id: string; receipt: Receipt }
+  | { type: 'remove_receipt'; id: string; receiptId: string }
   | { type: 'confirm_payment'; id: string }
   | { type: 'decline_payment'; id: string };
 
@@ -399,10 +528,10 @@ const mapExpense = (s: State, id: string, fn: (e: Expense) => Expense): State =>
   expenses: s.expenses.map((e) => (e.id === id ? fn(e) : e)),
 });
 
-function withVersion(e: Expense, total: bigint, split: SplitSpec, by: string): Expense {
+function withVersion(e: Expense, total: bigint, split: SplitSpec, by: string, title = e.title, payer = e.payer): Expense {
   return {
     ...e,
-    versions: [...e.versions, { n: current(e).n + 1, total, split, by }],
+    versions: [...e.versions, { n: current(e).n + 1, total, split, by, title, payer, at: now() }],
     disputes: [],
     suggestions: e.suggestions.map((x) => (x.status === 'open' ? { ...x, status: 'outdated' as const } : x)),
   };
@@ -437,19 +566,40 @@ export function reducer(s: State, a: Action, me = ME): State {
         icon: a.icon,
         date: today(),
         payer: a.payer,
-        versions: [{ n: 1, total: a.total, split: a.split, by: me }],
+        versions: [{ n: 1, total: a.total, split: a.split, by: me, title: a.title, payer: a.payer, at: now() }],
         deleted: false,
         disputes: [],
         messages: [],
         canChat: true,
         suggestions: [],
+        receipts: [],
+      };
+      return { ...s, expenses: [e, ...s.expenses] };
+    }
+    case 'import_expense': {
+      if (find(a.id)) return s;
+      const split: SplitSpec = { method: 'exact', amounts: a.shares };
+      const e: Expense = {
+        id: a.id,
+        groupId: a.groupId,
+        title: a.title,
+        icon: 'other',
+        date: a.date,
+        payer: a.payer,
+        versions: [{ n: 1, total: a.total, split, by: me, title: a.title, payer: a.payer, at: now() }],
+        deleted: false,
+        disputes: [],
+        messages: [],
+        canChat: true,
+        suggestions: [],
+        receipts: [],
       };
       return { ...s, expenses: [e, ...s.expenses] };
     }
     case 'edit_expense': {
       const e = find(a.id);
       if (!e || e.payer !== me) return s;
-      return mapExpense(s, a.id, (x) => ({ ...withVersion(x, a.total, a.split, me), title: a.title, payer: a.payer }));
+      return mapExpense(s, a.id, (x) => ({ ...withVersion(x, a.total, a.split, me, a.title, a.payer), title: a.title, payer: a.payer }));
     }
     case 'suggest': {
       const e = find(a.id);
@@ -515,10 +665,14 @@ export function reducer(s: State, a: Action, me = ME): State {
       return mapExpense(s, a.id, (x) => (x.payer === me ? { ...x, deleted: true } : x));
     case 'restore':
       return mapExpense(s, a.id, (x) => (x.payer === me ? { ...x, deleted: false } : x));
+    case 'add_receipt':
+      return mapExpense(s, a.id, (x) => (x.receipts.some((r) => r.id === a.receipt.id) ? x : { ...x, receipts: [...x.receipts, a.receipt] }));
+    case 'remove_receipt':
+      return mapExpense(s, a.id, (x) => ({ ...x, receipts: x.receipts.filter((r) => r.id !== a.receiptId) }));
     case 'record_payment': {
       if (me !== a.from && me !== a.to) return s;
       // Receiver-recorded payments count immediately; payer-recorded ones wait for the receiver.
-      const p: Payment = { id: uid('p'), groupId: a.groupId, from: a.from, to: a.to, amount: a.amount, via: a.via, status: me === a.to ? 'confirmed' : 'awaiting' };
+      const p: Payment = { id: uid('p'), groupId: a.groupId, from: a.from, to: a.to, amount: a.amount, via: a.via, status: me === a.to ? 'confirmed' : 'awaiting', at: now() };
       return bump({ ...s, payments: [...s.payments, p] });
     }
     case 'confirm_payment':
@@ -540,7 +694,7 @@ const all4 = [ME, 'bilal', 'chitra', 'dev'];
 
 export function seed(): State {
   const nights: SplitSpec = { method: 'shares', shares: { [ME]: 3, bilal: 3, chitra: 2, dev: 3 } };
-  const blank = { deleted: false, disputes: [], messages: [], canChat: true, suggestions: [] };
+  const blank = { deleted: false, disputes: [], messages: [], canChat: true, suggestions: [], receipts: [] };
   return {
     nextId: 100,
     members: Object.fromEntries(
@@ -572,7 +726,10 @@ export function seed(): State {
       { id: 'lunch', name: 'Office lunch', kind: 'food', members: [ME, 'kabir', 'isha', 'tara', 'neel', 'meera'] },
     ],
     expenses: [
-      { ...blank, id: 'e3', groupId: 'goa', title: 'Taxi', icon: 'taxi', date: '2026-10-22', payer: 'dev', versions: [{ n: 1, total: 90000n, split: { method: 'equal', members: [ME, 'bilal', 'dev'] }, by: 'dev' }] },
+      { ...blank, id: 'e3', groupId: 'goa', title: 'Taxi', icon: 'taxi', date: '2026-10-22', payer: 'dev', versions: [
+          { n: 1, total: 120000n, split: { method: 'equal', members: [ME, 'bilal', 'chitra', 'dev'] }, by: 'dev', title: 'Cab', payer: 'dev', at: '2026-10-22T08:10:00.000Z' },
+          { n: 2, total: 90000n, split: { method: 'equal', members: [ME, 'bilal', 'dev'] }, by: 'dev', title: 'Taxi', payer: 'dev', at: '2026-10-22T11:40:00.000Z' },
+        ] },
       { ...blank, id: 'e2', groupId: 'goa', title: 'Dinner at Thalassa', icon: 'food', date: '2026-10-21', payer: 'bilal', versions: [{ n: 1, total: 240000n, split: { method: 'equal', members: all4 }, by: 'bilal' }] },
       {
         ...blank,

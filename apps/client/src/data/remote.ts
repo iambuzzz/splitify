@@ -20,6 +20,8 @@ export interface ExpenseMeta {
 
 export interface Remote {
   state: State;
+  /** What the server can do (from the snapshots). */
+  features: { receipts: boolean };
   /** groupId → my member id there. */
   me: Record<string, string>;
   meta: Record<string, ExpenseMeta>;
@@ -30,6 +32,7 @@ const KINDS: Group['kind'][] = ['trip', 'home', 'food'];
 
 export const emptyRemote = (): Remote => ({
   state: { members: {}, groups: [], roster: {}, expenses: [], payments: [], pairMessages: [], seen: [], nextId: 1 },
+  features: { receipts: false },
   me: {},
   meta: {},
 });
@@ -40,6 +43,7 @@ export function buildRemote(snapshots: Json[]): Remote {
     const groupId: string = snap.group.id;
     const myId: string = snap.me.memberId;
     out.me[groupId] = myId;
+    if (snap.features?.receipts) out.features.receipts = true;
     const id = (memberId: string) => (memberId === myId ? ME : memberId);
 
     for (const m of snap.members) out.state.members[id(m.id)] = { id: id(m.id), name: m.displayName };
@@ -78,7 +82,7 @@ function toExpense(d: Json, id: (m: string) => string): Expense | null {
   if (counted === null) return null;
   const versions = d.versions.filter((v: Json) => v.version <= counted);
   const last = versions[versions.length - 1];
-  const payer = [...last.payers].sort((a: Json, b: Json) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : -1))[0];
+  const payer = mainPayer(last);
   return {
     id: d.id,
     groupId: d.groupId,
@@ -86,13 +90,22 @@ function toExpense(d: Json, id: (m: string) => string): Expense | null {
     icon: ICONS.includes(last.category) ? last.category : 'other',
     date: d.date,
     payer: id(payer.memberId),
-    versions: versions.map((v: Json) => ({ n: v.version, total: BigInt(v.ledgerTotal), split: toSpec(v.split, id), by: id(v.createdBy) })),
+    versions: versions.map((v: Json) => ({
+      n: v.version,
+      total: BigInt(v.ledgerTotal),
+      split: toSpec(v.split, id),
+      by: id(v.createdBy),
+      title: v.title,
+      payer: id(mainPayer(v).memberId),
+      at: v.createdAt,
+    })),
     deleted: d.status === 'deleted',
     disputes: d.disputes.map((x: Json) => ({ by: id(x.memberId), reason: x.reason })),
     messages: d.messages
       .filter((m: Json) => !m.deleted)
       .map((m: Json) => ({ id: m.id, by: id(m.authorId), kind: m.kind, text: m.body, at: m.createdAt, resolved: m.resolvedAt !== null })),
     canChat: d.canChat,
+    receipts: (d.receipts ?? []).map((r: Json) => ({ id: r.id, by: id(r.uploadedBy), contentType: r.contentType, size: r.byteSize, at: r.createdAt })),
     suggestions: d.suggestions.map((s: Json) => ({
       id: s.id,
       by: id(s.authorId),
@@ -105,6 +118,9 @@ function toExpense(d: Json, id: (m: string) => string): Expense | null {
   };
 }
 
+/** The app shows one payer per expense: whoever paid the most in that version. */
+const mainPayer = (v: Json): Json => [...v.payers].sort((a: Json, b: Json) => (BigInt(b.amount) > BigInt(a.amount) ? 1 : -1))[0];
+
 function toPayment(p: Json, groupId: string, id: (m: string) => string): Payment {
   return {
     id: p.id,
@@ -114,10 +130,11 @@ function toPayment(p: Json, groupId: string, id: (m: string) => string): Payment
     amount: BigInt(p.amount),
     via: p.method === 'cash' ? 'cash' : 'upi',
     status: p.status === 'confirmed' ? 'confirmed' : p.status === 'awaiting_confirmation' ? 'awaiting' : 'declined',
+    at: p.createdAt,
   };
 }
 
-/** The app edits splits as equal or shares; exact and percent splits (from elsewhere) show as shares. */
+/** The API's split, in the app's terms (member ids mapped, amounts as bigint). */
 function toSpec(split: Json, id: (m: string) => string): SplitSpec {
   switch (split.method) {
     case 'equal':
@@ -125,9 +142,9 @@ function toSpec(split: Json, id: (m: string) => string): SplitSpec {
     case 'shares':
       return { method: 'shares', shares: Object.fromEntries(split.shares.map((s: Json) => [id(s.memberId), Number(s.shares)])) };
     case 'exact':
-      return { method: 'shares', shares: Object.fromEntries(split.amounts.map((s: Json) => [id(s.memberId), Number(s.amount)])) };
+      return { method: 'exact', amounts: Object.fromEntries(split.amounts.map((s: Json) => [id(s.memberId), BigInt(s.amount)])) };
     default:
-      return { method: 'shares', shares: Object.fromEntries(split.basisPoints.map((s: Json) => [id(s.memberId), s.basisPoints])) };
+      return { method: 'percent', basisPoints: Object.fromEntries(split.basisPoints.map((s: Json) => [id(s.memberId), s.basisPoints])) };
   }
 }
 
@@ -143,7 +160,11 @@ export async function perform(a: Action, r: Remote): Promise<void> {
   const split = (groupId: string, spec: SplitSpec) =>
     spec.method === 'equal'
       ? { method: 'equal', members: spec.members.map((m) => real(groupId, m)) }
-      : {
+      : spec.method === 'exact'
+        ? { method: 'exact', amounts: Object.entries(spec.amounts).filter(([, v]) => v > 0n).map(([m, v]) => ({ memberId: real(groupId, m), amount: v.toString() })) }
+        : spec.method === 'percent'
+          ? { method: 'percent', basisPoints: Object.entries(spec.basisPoints).filter(([, n]) => n > 0).map(([m, n]) => ({ memberId: real(groupId, m), basisPoints: n })) }
+          : {
           method: 'shares',
           shares: Object.entries(spec.shares)
             .filter(([, n]) => n > 0)
@@ -167,6 +188,18 @@ export async function perform(a: Action, r: Remote): Promise<void> {
       return;
     case 'add_expense':
       await api.send('POST', `/groups/${a.groupId}/expenses`, { id: a.id, ...content(a.groupId, a, undefined, a.icon) });
+      return;
+    case 'import_expense':
+      await api.send('POST', `/groups/${a.groupId}/expenses`, {
+        id: a.id,
+        title: a.title,
+        category: 'other',
+        date: a.date,
+        currency: 'INR',
+        total: a.total.toString(),
+        payers: [{ memberId: real(a.groupId, a.payer), amount: a.total.toString() }],
+        split: { method: 'exact', amounts: Object.entries(a.shares).map(([m, v]) => ({ memberId: real(a.groupId, m), amount: v.toString() })) },
+      });
       return;
     case 'edit_expense': {
       const g = groupOf(a.id);
@@ -221,6 +254,12 @@ export async function perform(a: Action, r: Remote): Promise<void> {
         method: a.via,
       });
       return;
+    case 'add_receipt':
+      // Uploaded on its own (uploadReceipt); this action only shows it before the reload.
+      return;
+    case 'remove_receipt':
+      await api.send('POST', `/receipts/${a.receiptId}/delete`);
+      return;
     case 'confirm_payment':
       await api.send('POST', `/settlements/${a.id}/confirm`);
       return;
@@ -249,19 +288,54 @@ export async function loadRemote(): Promise<Remote> {
 
 /** A group's snapshot, numbered by when its request started. */
 export type Snap = { data: unknown; seq: number };
-/** A change shown before the server has it. `sentAt`: the request number when I made it. */
-export type Pending = { key: number; action: Action; group: string | undefined; sentAt: number };
+/**
+ * A change shown before the server has it. `sentAt`: the request number when I made it. `base`: the
+ * group's snapshot from before it (and before any of my other changes still unconfirmed there); null
+ * for a group that had none. `doneAt`: the request number when the API answered. `reloaded`: the
+ * reload after that has finished (the group may be gone, say after leaving it).
+ */
+export type Pending = { key: number; action: Action; group: string | undefined; sentAt: number; base?: Snap | null; doneAt?: number; reloaded?: boolean };
+
+/** Confirmed: the API has answered, and a snapshot requested after that is in, so it shows the change (or its refusal). */
+export function settled(p: Pending, snaps: Record<string, Snap>): boolean {
+  if (p.doneAt === undefined) return false;
+  if (!p.group) return true;
+  const snap = snaps[p.group];
+  return snap ? snap.seq > p.doneAt : !!p.reloaded;
+}
 
 /**
- * What the screens show: the snapshots, plus each of my unsaved changes on top of a snapshot that was
- * requested before I made it (so an older reply arriving late can't undo it on screen). A snapshot
- * requested after I made it is the server's word: it may already include the change (the live hint
- * often beats the API's reply), and adding it again would show it twice.
+ * What the screens show: the snapshots, plus my unconfirmed changes on top. While a group has one, it
+ * is drawn from the snapshot taken before them, with each of them applied, never from a newer one:
+ * a reload that starts after the tap can still be answered before the server saves the change (a
+ * live hint for something else, the /pulse check), and showing it would make the change vanish and
+ * come back. It also can't show a change twice. The newest snapshot takes over once every change in
+ * that group is confirmed.
  */
 export function withPending(snaps: Record<string, Snap>, pending: Pending[], seenLocally: SeenMark[] = []): Remote {
-  const base = buildRemote(Object.values(snaps).map((x) => x.data));
+  const view = { ...snaps };
+  const apply: Pending[] = [];
+  for (const g of new Set(pending.map((p) => p.group))) {
+    const mine = pending.filter((p) => p.group === g);
+    if (g === undefined) {
+      apply.push(...mine.filter((p) => p.doneAt === undefined));
+      continue;
+    }
+    const open = mine.find((p) => !settled(p, snaps));
+    if (!open) continue;
+    if (open.base === undefined) {
+      // No snapshot recorded with it: the snapshot as it is, if it's from before the change.
+      apply.push(...mine.filter((p) => !settled(p, snaps) && (snaps[g]?.seq ?? -1) < p.sentAt));
+      continue;
+    }
+    if (open.base) view[g] = open.base;
+    else delete view[g];
+    const from = open.base?.seq ?? -1;
+    apply.push(...mine.filter((p) => p.sentAt > from));
+  }
+  const base = buildRemote(Object.values(view).map((x) => x.data));
   let state = base.state;
-  for (const p of pending) if (!p.group || (snaps[p.group]?.seq ?? -1) < p.sentAt) state = reducer(state, p.action);
+  for (const p of apply.sort((a, b) => a.sentAt - b.sentAt)) state = reducer(state, p.action);
   // What I've looked at on this device counts as seen by me at once (the server records it too).
   if (seenLocally.length) {
     const mine = new Map(state.seen.filter((x) => x.by === ME).map((x) => [`${x.type}|${x.id}`, x]));

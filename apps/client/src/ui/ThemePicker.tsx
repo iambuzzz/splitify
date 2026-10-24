@@ -32,7 +32,7 @@ export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => v
               <Pressable
                 key={id}
                 accessibilityRole="radio"
-                accessibilityState={{ checked: on }}
+                aria-checked={on}
                 onPress={() => {
                   setTheme(id);
                   onClose();

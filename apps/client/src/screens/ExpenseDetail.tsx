@@ -1,11 +1,15 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { ME, type Expense, balanceOf, current, inr, memberName, reducer, sharesFor } from '../data/model';
+import { ME, type Expense, balanceOf, current, inr, memberName, percentText, reducer, sharesFor, splitWords } from '../data/model';
 import { uuidv7 } from '../data/ids';
-import { useStore } from '../data/StoreProvider';
+import { expenseShareText } from '../data/share';
+import { appUrl, useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { Avatar, BigAmount, Button, Card, CategoryIcon, Divider, Label, Note, T, styles } from '../ui/kit';
+import { History, lastEdit } from '../ui/History';
+import { Receipts } from '../ui/Receipts';
+import { ShareSheet } from '../ui/ShareSheet';
 import { Thread, seenLine } from '../ui/Thread';
 
 const fmtDate = (d: string) =>
@@ -17,14 +21,23 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
   const { state, dispatch, markSeen } = useStore();
   const [showHistory, setShowHistory] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const receipt = theme.family === 'receipt';
   const v = current(e);
   const owner = e.payer === ME;
   const name = (id: string) => (id === ME ? 'You' : state.members[id]?.name ?? id);
   const shares = sharesFor(v.total, v.split, e.id) ?? [];
-  const nightsOf = (id: string) => (v.split.method === 'shares' ? v.split.shares[id] ?? 0 : null);
+  // What each person put in for a shares or percentage split ("2 shares", "25%"); nothing for equal or exact.
+  const inputOf = (id: string) => {
+    if (v.split.method === 'shares') {
+      const n = v.split.shares[id] ?? 0;
+      return receipt ? ` ×${n}` : ` · ${n} share${n === 1 ? '' : 's'}`;
+    }
+    if (v.split.method === 'percent') return `${receipt ? ' ' : ' · '}${percentText(v.split.basisPoints[id] ?? 0)}`;
+    return null;
+  };
   const myDispute = e.disputes.some((d) => d.by === ME);
-  const meta = `${fmtDate(e.date)} · paid by ${name(e.payer).toLowerCase() === 'you' ? 'you' : name(e.payer)} · ${v.split.method === 'equal' ? 'split equally' : 'split by nights'}`;
+  const meta = `${fmtDate(e.date)} · paid by ${name(e.payer).toLowerCase() === 'you' ? 'you' : name(e.payer)} · split ${splitWords(v.split)}`;
   // Opening an expense marks its current version (and its thread) as seen by me.
   useEffect(() => {
     if (e.canChat) markSeen(e.groupId, [{ type: 'expense', id: e.id, version: v.n, upTo: e.messages.at(-1)?.id }]);
@@ -37,16 +50,24 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
   const before = balanceOf(state, e.groupId);
   const after = balanceOf(reducer(state, { type: 'delete', id: e.id }), e.groupId);
   const describe = (b: bigint) => (b === 0n ? 'settled' : b > 0n ? `you get ${inr(b)}` : `you owe ${inr(-b)}`);
+  const edited = lastEdit(e, name);
+  const editedLine = edited ? (
+    <Pressable accessibilityRole="button" accessibilityLabel="See what changed" onPress={() => setShowHistory(true)}>
+      <T size={13} weight="semibold" color={theme.c.get} mono={receipt}>
+        {edited}
+      </T>
+    </Pressable>
+  ) : null;
 
   const breakdown = (
     <View style={{ gap: 8 }}>
       {shares.map((s) => {
-        const n = nightsOf(s.memberId);
+        const input = inputOf(s.memberId);
         return (
           <View key={s.memberId} style={styles.between}>
             <T mono={receipt} size={15}>
-              {receipt ? `${name(s.memberId).toUpperCase()}${n !== null ? ` ×${n}` : ''}` : name(s.memberId)}
-              {!receipt && n !== null ? <T size={15} color={theme.c.muted}>{` · ${n} night${n === 1 ? '' : 's'}`}</T> : null}
+              {receipt ? `${name(s.memberId).toUpperCase()}${input ?? ''}` : name(s.memberId)}
+              {!receipt && input !== null ? <T size={15} color={theme.c.muted}>{input}</T> : null}
             </T>
             <T mono={receipt} size={15} weight="semibold">
               {inr(s.amount, { symbol: !receipt })}
@@ -66,6 +87,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             {e.deleted ? ' (deleted)' : ''}
           </T>
           <Label>{meta}</Label>
+          {editedLine}
           <Divider />
           {breakdown}
           <Divider />
@@ -93,6 +115,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
               <T size={13} color={theme.c.muted}>
                 {meta}
               </T>
+              {editedLine}
             </View>
           </View>
         </>
@@ -155,6 +178,8 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
 
       {!receipt ? <Card>{breakdown}</Card> : null}
 
+      <Receipts expense={e} name={name} />
+
       <Card>
         <Label>{e.canChat ? 'Chat about this expense' : 'Chat'}</Label>
         {e.canChat ? (
@@ -209,6 +234,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             variant="secondary"
             onPress={() => router.push(`/group/${e.groupId}/add?eid=${e.id}&mode=${owner ? 'edit' : 'suggest'}`)}
           />
+          <Button title="Share" icon="send" size="md" variant="secondary" onPress={() => setSharing(true)} />
           {owner ? <Button title="Delete" size="md" variant="danger-text" onPress={() => setConfirmDelete(true)} /> : null}
         </View>
       ) : owner ? (
@@ -218,7 +244,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
       <View style={styles.between}>
         <Pressable accessibilityRole="button" onPress={() => setShowHistory(!showHistory)}>
           <T size={14} weight="bold" color={theme.c.get}>
-            {showHistory ? 'Hide history' : `See history (${e.versions.length} version${e.versions.length > 1 ? 's' : ''})`}
+            {showHistory ? 'Hide history' : e.versions.length > 1 ? `See history (${e.versions.length} versions)` : 'See history'}
           </T>
         </Pressable>
         {!owner && !e.deleted ? (
@@ -232,18 +258,17 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
           </Pressable>
         ) : null}
       </View>
+      <ShareSheet
+        open={sharing}
+        title={`Share ${e.title}`}
+        buildText={(amounts) => expenseShareText(state, e, `${appUrl()}/group/${e.groupId}/expense/${e.id}`, amounts)}
+        onClose={() => setSharing(false)}
+      />
       {showHistory ? (
-        <View style={{ gap: 6 }}>
-          {[...e.versions].reverse().map((ver, i, arr) => {
-            const prev = arr[i + 1];
-            return (
-              <T key={ver.n} size={14} color={theme.c.muted} mono={receipt}>
-                v{ver.n} · {name(ver.by)} · {inr(ver.total)}
-                {prev ? ` (was ${inr(prev.total)})` : ' (created)'}
-              </T>
-            );
-          })}
-        </View>
+        <Card>
+          <Label>History</Label>
+          <History expense={e} name={name} />
+        </Card>
       ) : null}
     </View>
   );

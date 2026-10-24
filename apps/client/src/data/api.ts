@@ -39,6 +39,31 @@ async function call(method: 'GET' | 'POST' | 'PUT' | 'PATCH', path: string, body
   return json;
 }
 
+/** A receipt photo or PDF, sent as it is (not JSON). Retrying with the same `id` can't add it twice. */
+export async function uploadReceipt(expenseId: string, id: string, file: Blob, contentType: string, size?: { width: number; height: number }): Promise<Json> {
+  const token = await target?.token();
+  if (!target || !token) throw new ApiError(401, 'unauthenticated', 'Please sign in again');
+  const q = new URLSearchParams({ id, ...(size ? { width: String(size.width), height: String(size.height) } : {}) });
+  let res: Response;
+  try {
+    res = await fetch(`${target.url}/v1/expenses/${expenseId}/receipts?${q}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': contentType }, body: file });
+  } catch {
+    throw new ApiError(0, 'offline', "Can't reach Splitify. Check your internet and try again");
+  }
+  const json: Json = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, json?.error?.code ?? 'error', json?.error?.message ?? 'Could not add the file. Try again');
+  return json;
+}
+
+/** A receipt's file, for showing it (the request carries the sign-in token, so it can't be a plain link). */
+export async function fetchReceipt(id: string): Promise<Blob> {
+  const token = await target?.token();
+  if (!target || !token) throw new ApiError(401, 'unauthenticated', 'Please sign in again');
+  const res = await fetch(`${target.url}/v1/receipts/${id}`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new ApiError(res.status, 'error', 'Could not load this file');
+  return res.blob();
+}
+
 /** Before sign-in: ask our API to email a 6-digit code and a sign-in button (no token needed). */
 /** Emails a sign-in code; returns how many digits it has. */
 export async function requestSignInEmail(email: string): Promise<number> {

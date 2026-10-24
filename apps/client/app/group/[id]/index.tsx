@@ -1,3 +1,4 @@
+import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -14,12 +15,13 @@ import {
   myEffect,
   myTransfers,
   newMarks,
+  splitWords,
   transfersOf,
-  whyTrace,
 } from '../../../src/data/model';
 import { useStore } from '../../../src/data/StoreProvider';
 import { ExpenseDetail } from '../../../src/screens/ExpenseDetail';
 import { useTheme } from '../../../src/theme/ThemeProvider';
+import { useGroupMenu } from '../../../src/ui/GroupMenu';
 import { useInvite } from '../../../src/ui/useInvite';
 import { Header } from '../../../src/ui/Header';
 import { Missing } from '../../../src/ui/Missing';
@@ -36,10 +38,10 @@ export default function GroupScreen() {
   const insets = useSafeAreaInsets();
   const group = state.groups.find((g) => g.id === id);
   const { invite, notice, setNotice, sheet } = useInvite(group);
+  const { openMenu, menu, notice: menuNotice, setNotice: setMenuNotice } = useGroupMenu(group);
   const expenses = group ? groupExpenses(state, group.id) : [];
   const firstNeedy = expenses.find((e) => e.payer === ME && e.suggestions.some((s) => s.status === 'open')) ?? expenses[0];
   const [selected, setSelected] = useState<string | undefined>(wanted ?? firstNeedy?.id);
-  const [why, setWhy] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
   // Laptop deep links (/group/x?e=id) pick the expense shown in the side panel.
   useEffect(() => {
@@ -87,31 +89,14 @@ export default function GroupScreen() {
             {settleNew ? <Dot size={14} style={{ position: 'absolute', top: -6, right: -6, borderWidth: 3, borderColor: theme.c.surface }} /> : null}
           </View>
         ) : null}
-        <Button title={why ? 'Hide' : anyoneOwes ? 'Why?' : 'How it adds up'} size="md" variant="secondary" flex={anyoneOwes ? undefined : 1} onPress={() => setWhy(!why)} />
+        <Button
+          title={anyoneOwes ? 'Why?' : 'How it adds up'}
+          size="md"
+          variant="secondary"
+          flex={anyoneOwes ? undefined : 1}
+          onPress={() => router.push(`/group/${group.id}/why`)}
+        />
       </View>
-      {why ? (
-        <View style={{ gap: 6 }}>
-          {whyTrace(state, group.id).map((r, i) => (
-            <View key={i} style={styles.between}>
-              <T size={14} mono={receipt}>
-                {r.label}
-              </T>
-              <T size={14} mono={receipt} weight="bold" color={r.amount > 0n ? theme.c.get : theme.c.owe}>
-                {inr(r.amount, { sign: true })}
-              </T>
-            </View>
-          ))}
-          <Divider />
-          <View style={styles.between}>
-            <T size={14} weight="bold">
-              Total
-            </T>
-            <T size={14} weight="bold">
-              {inr(mine, { sign: true })}
-            </T>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 
@@ -172,7 +157,7 @@ export default function GroupScreen() {
               <View style={[styles.row, { flex: 1, gap: 6 }]}>
                 <T mono weight="bold" size={14} numberOfLines={1} style={{ flexShrink: 1 }}>
                   {e.title.toUpperCase()}
-                  {v.split.method === 'shares' ? ' · BY NIGHTS' : ''}
+                  {v.split.method !== 'equal' ? ` · ${splitWords(v.split).toUpperCase()}` : ''}
                 </T>
                 {marks.expenses.has(e.id) ? <Dot /> : null}
               </View>
@@ -182,7 +167,7 @@ export default function GroupScreen() {
             </View>
             <View style={styles.between}>
               <T mono size={12} color={theme.c.muted}>
-                {`${fmtDay(e.date).toUpperCase()} · ${name(e.payer).toUpperCase()} PAID${flagged ? ' · ✎ NOTE' : ''}`}
+                {`${fmtDay(e.date).toUpperCase()} · ${name(e.payer).toUpperCase()} PAID${flagged ? ' · ✎ NOTE' : ''}${e.receipts.length ? ` · BILL×${e.receipts.length}` : ''}`}
               </T>
               <T mono size={12} color={eff > 0n ? theme.c.get : eff < 0n ? theme.c.owe : theme.c.muted}>
                 {eff === 0n ? 'NOT IN' : `YOU ${inr(eff, { sign: true, symbol: false })}`}
@@ -236,10 +221,18 @@ export default function GroupScreen() {
                       </T>
                       {marks.expenses.has(e.id) ? <Dot /> : null}
                     </View>
-                    <T size={13} color={theme.c.muted}>
-                      {name(e.payer)} paid {inr(v.total)}
-                      {v.split.method === 'shares' ? ' · by nights' : ''}
-                    </T>
+                    <View style={[styles.row, { gap: 6 }]}>
+                      <T size={13} color={theme.c.muted} style={{ flexShrink: 1 }}>
+                        {name(e.payer)} paid {inr(v.total)}
+                        {v.split.method !== 'equal' ? ` · ${splitWords(v.split)}` : ''}
+                      </T>
+                      {e.receipts.length ? (
+                        <View accessibilityLabel={`${e.receipts.length} bill photo${e.receipts.length > 1 ? 's' : ''}`} style={[styles.row, { gap: 2 }]}>
+                          <Feather name="paperclip" size={12} color={theme.c.muted} />
+                          {e.receipts.length > 1 ? <T size={12} color={theme.c.muted}>{String(e.receipts.length)}</T> : null}
+                        </View>
+                      ) : null}
+                    </View>
                     {sug || q ? (
                       <View style={[styles.row, { gap: 6, marginTop: 4 }]}>
                         {sug ? <Pill text={`${sug} suggestion`} /> : null}
@@ -295,15 +288,22 @@ export default function GroupScreen() {
         title={receipt ? undefined : group.name}
         right={
           <View style={{ flexDirection: 'row' }}>
-            <IconButton icon="users" label="Members" onPress={() => router.push(`/group/${group.id}/members`)} />
             <IconButton icon="user-plus" label="Invite friends" onPress={invite} />
+            <IconButton icon="more-horizontal" label="More: share, spreadsheet, import, members" onPress={openMenu} />
           </View>
         }
       />
-      {notice ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={`${notice} Tap to hide.`} onPress={() => setNotice(null)}>
+      {notice || menuNotice ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${notice ?? menuNotice} Tap to hide.`}
+          onPress={() => {
+            setNotice(null);
+            setMenuNotice(null);
+          }}
+        >
           <T size={13} weight="semibold" color={theme.c.muted} style={{ textAlign: 'center' }}>
-            {notice}
+            {notice ?? menuNotice}
           </T>
         </Pressable>
       ) : null}
@@ -332,6 +332,7 @@ export default function GroupScreen() {
               {group.name}
             </T>
             <View style={[styles.row, { gap: 10 }]}>
+              <IconButton icon="more-horizontal" label="More: share, spreadsheet, import, members" onPress={openMenu} />
               <Button title="Invite" size="md" variant="secondary" icon="user-plus" onPress={invite} />
               <Button title={receipt ? '+ Add a bill' : 'Add expense'} size="md" icon={receipt ? undefined : 'plus'} onPress={() => router.push(`/group/${group.id}/add`)} />
             </View>
@@ -341,7 +342,13 @@ export default function GroupScreen() {
           {needsBlock}
           {list}
           {deletedBlock}
+          {menuNotice ? (
+            <T size={13} weight="semibold" color={theme.c.muted}>
+              {menuNotice}
+            </T>
+          ) : null}
           {sheet}
+          {menu}
         </ScrollView>
         <ScrollView
           style={{ flex: 1, borderLeftWidth: receipt ? 2 : 1, borderStyle: receipt ? 'dashed' : 'solid', borderColor: theme.c.border, backgroundColor: receipt ? theme.c.bg : theme.c.surface }}
@@ -373,6 +380,7 @@ export default function GroupScreen() {
       {list}
       {deletedBlock}
       {sheet}
+      {menu}
     </Screen>
   );
 }

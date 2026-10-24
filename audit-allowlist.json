@@ -2,15 +2,15 @@
   "$comment": "Known advisories with no patched version yet. Each entry needs a reason and a review date; CI fails on any other advisory and on expired entries. Approved by the project owner on 2026-10-22.",
   "advisories": [
     {
-      "id": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "reason": "Dev tooling only (Metro file watching via micromatch). Not shipped in the app. No patched version published.",
-      "reviewBy": "2026-11-22"
-    },
-    {
       "id": "GHSA-86w9-cpqp-85rv",
       "package": "node-forge",
       "reason": "Dev tooling only (Expo CLI code signing). We don't use signed updates. Not shipped in the app. No patched version published.",
+      "reviewBy": "2026-11-22"
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "reason": "Only the zod 3.25 copy inside Expo CLI (build-time dev tooling, validates local config) is affected; it is not shipped in the app or the API. The API uses zod 4.6.7, which has the fix. The only offered fix is downgrading Expo 58 to 54. Review when Expo CLI moves to zod 4.6.6+.",
       "reviewBy": "2026-11-22"
     }
   ]

@@ -21,7 +21,7 @@ Themes are data (tokens: colours, fonts, radii) plus a small set of **skinned co
 | M2 | Database schema (Supabase migrations), RLS, ledger tables append-only (I4), reconciliation job (I5) | Tables visible in the Supabase dashboard | **Done** (pushed to expense-dev 2026-10-22) |
 | M3 | Node/Fastify API: groups, members, invites, expenses (versions, suggestions), settlements, idempotency (I7) | API tests green | **Done locally 2026-10-23** (28 API tests green; see [api.md](api.md)). Migration `20261023090000_api_support.sql` still to push |
 | M4 | Sign-in (email OTP, then Google), invite links, client wired to the API | Real sign-in, data saved | **Done, live 2026-10-24** at https://splitify.iambuzzdev.in ([deploy.md](deploy.md)): email code + button (Resend, from login@splitify.iambuzzdev.in), Google sign-in on the web (our own `/auth/google` return + `signInWithIdToken`, so Google names iambuzzdev.in, not the Supabase project), invite links, app on the API. Google on the phone apps still to do |
-| M5 | Receipts upload, history and diffs, "Why?", CSV export, Splitwise CSV import, share to WhatsApp + deep links | Full alpha flow | Not started |
+| M5 | Receipts upload, history and diffs, "Why?", CSV export, Splitwise CSV import, share to WhatsApp + deep links | Full alpha flow | **Built and tested locally 2026-10-24** (not deployed; see STATUS.md item 5). Receipts are added from the browser only; phone apps need an image picker |
 | M6 | Mobile offline queue, Sentry, backups, alpha with 5 real groups | Exit criteria: 2 weeks, reconciliation 0 diffs | Not started |
 
 ## Known risks
@@ -31,7 +31,7 @@ Themes are data (tokens: colours, fonts, radii) plus a small set of **skinned co
 
 ## M1 result (2026-10-22)
 - `apps/client`: Expo SDK 58, React Native 0.88, Expo Router, TypeScript 6 (Expo tooling). Run `npm run app`, then open http://localhost:8081. Add `?theme=neon-lime`, `receipt` or `thermal` to open a theme directly.
-- Screens: Home, Group (list or bill), Add/Edit/Suggest expense (equal or by nights; keypad + nights grid in bill themes), Expense detail (suggestion accept/keep, questions, history, "something's wrong"), Settle up (confirm, remind on WhatsApp, record UPI/cash), New group. Laptop: sidebar + list/detail side by side.
+- Screens: Home, Group (list or bill), Add/Edit/Suggest expense (equally, by shares, by percentage or exact amounts; optional bill photo; keypad in bill themes), Expense detail (suggestion accept/keep, questions, history, "something's wrong"), Settle up (confirm, remind on WhatsApp, record UPI/cash), New group. Laptop: sidebar + list/detail side by side.
 - Data is local demo data (resets on reload). Money uses the real `@app/ledger` engine. Tests: `tests/client-model.test.ts`.
 - Not yet: sign-in, database, saving, offline, receipts, export/import.
 

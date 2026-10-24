@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ApiError, configureApi, requestSignInEmail } from '../../apps/client/src/data/api';
 import { uuidv7 } from '../../apps/client/src/data/ids';
-import { ME, balanceOf, current } from '../../apps/client/src/data/model';
-import { type Pending, type Remote, emptyRemote, fetchSnapshot, loadRemote, perform, sendSeen, withPending } from '../../apps/client/src/data/remote';
+import { ME, type SplitSpec, balanceOf, current } from '../../apps/client/src/data/model';
+import { type Pending, type Remote, emptyRemote, fetchSnapshot, loadRemote, perform, sendSeen, settled, withPending } from '../../apps/client/src/data/remote';
 import { type TestApi, type User, ok, testApi } from './harness';
 
 /**
@@ -163,6 +163,33 @@ describe('app data layer against the API', () => {
     expect(balanceOf(r.state, groupId)).toBe(15000n); // Rahul's share is still owed after he left
   });
 
+  it('saves each way of splitting (shares, percentage, exact amounts) and reads it back the same', async () => {
+    const asha = await api.user('Asha');
+    const groupId = uuidv7();
+    as = asha;
+    await perform({ type: 'add_group', id: groupId, name: 'Flat', kind: 'home', memberNames: ['Ben', 'Chetan'] }, emptyRemote());
+    let r = await signedIn(asha);
+    const [b, c] = r.state.groups[0]!.members.filter((m) => m !== ME) as [string, string];
+    const splits: SplitSpec[] = [
+      { method: 'shares', shares: { [ME]: 2, [b]: 1, [c]: 1 } },
+      { method: 'percent', basisPoints: { [ME]: 5000, [b]: 2500, [c]: 2500 } },
+      { method: 'exact', amounts: { [ME]: 50000n, [b]: 25000n, [c]: 25000n } },
+    ];
+    for (const split of splits) {
+      const e = uuidv7();
+      await perform({ type: 'add_expense', id: e, groupId, title: split.method, icon: 'other', total: 100000n, payer: ME, split }, r);
+      r = await balances(asha, groupId);
+      expect(current(r.state.expenses.find((x) => x.id === e)!).split).toEqual(split);
+    }
+    // Each one is ₹1,000 with half mine: I paid all, so I'm owed ₹500 three times.
+    expect(balanceOf(r.state, groupId)).toBe(150000n);
+    // Editing a percentage split into exact amounts is a new version, and the history says so.
+    const first = r.state.expenses.find((x) => x.title === 'percent')!;
+    await perform({ type: 'edit_expense', id: first.id, title: 'percent', total: 100000n, payer: ME, split: { method: 'exact', amounts: { [ME]: 40000n, [b]: 60000n } } }, r);
+    r = await balances(asha, groupId);
+    expect(r.state.expenses.find((x) => x.id === first.id)!.versions.map((v) => v.split.method)).toEqual(['percent', 'exact']);
+  });
+
   it('a confirmed payment does not jump back when an older reload arrives late', async () => {
     const asha = await api.user('Asha');
     const ben = await api.user('Ben');
@@ -182,15 +209,21 @@ describe('app data layer against the API', () => {
     r = withPending(stale, []);
     const payment = r.state.payments[0]!;
     expect(payment.status).toBe('awaiting');
-    const confirm: Pending = { key: 1, action: { type: 'confirm_payment', id: payment.id }, group: groupId, sentAt: 2 };
-    // Shown at once, and still shown while the API saves it and the old reply comes in…
+    const confirm: Pending = { key: 1, action: { type: 'confirm_payment', id: payment.id }, group: groupId, sentAt: 2, base: stale[groupId] };
+    // Shown at once, and still shown while the API saves it…
     expect(withPending(stale, [confirm]).state.payments[0]!.status).toBe('confirmed');
+    // …even when a reload asked for after the tap (request 3, say a live hint about something else)
+    // is answered before the server has saved it: the screen must not jump back.
+    const early = { [groupId]: { data: (await signedIn(asha), await fetchSnapshot(groupId)), seq: 3 } };
+    expect(withPending(early, [confirm]).state.payments[0]!.status).toBe('confirmed');
     await perform(confirm.action, r);
-    expect(withPending(stale, [confirm]).state.payments[0]!.status).toBe('confirmed');
-    expect(balanceOf(withPending(stale, [confirm]).state, groupId)).toBe(0n);
-    // …until a reload requested after the tap (request 3) shows the server's own record.
-    const fresh = { [groupId]: { data: await fetchSnapshot(groupId), seq: 3 } };
-    const after = withPending(fresh, [confirm]);
+    const done = { ...confirm, doneAt: 4 };
+    expect(withPending(early, [done]).state.payments[0]!.status).toBe('confirmed');
+    expect(balanceOf(withPending(early, [done]).state, groupId)).toBe(0n);
+    // …until a reload requested after the API answered (request 5) shows the server's own record.
+    const fresh = { [groupId]: { data: await fetchSnapshot(groupId), seq: 5 } };
+    expect(settled(done, fresh)).toBe(true);
+    const after = withPending(fresh, [done]);
     expect(after.state.payments.map((p) => p.status)).toEqual(['confirmed']);
     expect(balanceOf(after.state, groupId)).toBe(0n);
   });
@@ -205,12 +238,42 @@ describe('app data layer against the API', () => {
     await perform({ type: 'add_expense', id: e, groupId, title: 'Cab', icon: 'taxi', total: 40000n, payer: ME, split: { method: 'equal', members: r.state.groups[0]!.members } }, r);
     r = await signedIn(asha);
     const stale = { [groupId]: { data: await fetchSnapshot(groupId), seq: 1 } };
-    const ask: Pending = { key: 1, action: { type: 'post', id: e, messageId: uuidv7(), text: 'Toll included?', question: true }, group: groupId, sentAt: 2 };
+    const ask: Pending = { key: 1, action: { type: 'post', id: e, messageId: uuidv7(), text: 'Toll included?', question: true }, group: groupId, sentAt: 2, base: stale[groupId] };
     expect(withPending(stale, [ask]).state.expenses[0]!.messages).toHaveLength(1);
     await perform(ask.action, r);
     // The hint's reload (request 3) already has the question; the change is still pending.
     const hinted = { [groupId]: { data: await fetchSnapshot(groupId), seq: 3 } };
     expect(withPending(hinted, [ask]).state.expenses[0]!.messages.map((m) => m.text)).toEqual(['Toll included?']);
+    // Answered, then confirmed by the reload after: still exactly once.
+    const after = { [groupId]: { data: await fetchSnapshot(groupId), seq: 5 } };
+    expect(withPending(after, [{ ...ask, doneAt: 4 }]).state.expenses[0]!.messages.map((m) => m.text)).toEqual(['Toll included?']);
+  });
+
+  it('two quick changes in a row: neither flickers while the other is saving', async () => {
+    const asha = await api.user('Asha');
+    const groupId = uuidv7();
+    as = asha;
+    await perform({ type: 'add_group', id: groupId, name: 'Trip', kind: 'trip', memberNames: ['Ben'] }, emptyRemote());
+    let r = await signedIn(asha);
+    const e = uuidv7();
+    await perform({ type: 'add_expense', id: e, groupId, title: 'Cab', icon: 'taxi', total: 40000n, payer: ME, split: { method: 'equal', members: r.state.groups[0]!.members } }, r);
+    r = await signedIn(asha);
+    const before = { [groupId]: { data: await fetchSnapshot(groupId), seq: 1 } };
+    const rename: Pending = { key: 1, action: { type: 'edit_expense', id: e, title: 'Taxi', total: 40000n, payer: ME, split: current(r.state.expenses[0]!).split }, group: groupId, sentAt: 2, base: before[groupId] };
+    // The second change shares the first one's starting point (that's what the store records).
+    const ask: Pending = { key: 2, action: { type: 'post', id: e, messageId: uuidv7(), text: 'Toll?', question: false }, group: groupId, sentAt: 3, base: before[groupId] };
+    const show = (snaps: Record<string, { data: unknown; seq: number }>, p: Pending[]) => {
+      const x = withPending(snaps, p).state.expenses[0]!;
+      return [x.title, current(x).n, x.messages.map((m) => m.text).join()];
+    };
+    await perform(rename.action, r);
+    // The rename is saved and reloaded (request 5), but the message is still on its way: the newer
+    // snapshot has the rename and not the message, and still nothing jumps.
+    const mid = { [groupId]: { data: await fetchSnapshot(groupId), seq: 5 } };
+    expect(show(mid, [{ ...rename, doneAt: 4 }, ask])).toEqual(['Taxi', 2, 'Toll?']);
+    await perform(ask.action, r);
+    const end = { [groupId]: { data: await fetchSnapshot(groupId), seq: 7 } };
+    expect(show(end, [{ ...rename, doneAt: 4 }, { ...ask, doneAt: 6 }])).toEqual(['Taxi', 2, 'Toll?']);
   });
 
   it('asks the API for a sign-in email before signing in; without email set up it says so (the app falls back)', async () => {
