@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 import { useState } from 'react';
 import { Modal, Platform, Pressable, View } from 'react-native';
 import { csvFileName, groupCsv } from '../data/csv';
-import type { Group } from '../data/model';
+import { type Group, groupPhase, isAdmin } from '../data/model';
 import { groupSummaryText } from '../data/share';
 import { appUrl, useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
@@ -14,7 +14,7 @@ import { ShareSheet } from './ShareSheet';
 
 type Icon = ComponentProps<typeof Feather>['name'];
 
-/** The group's "more" menu: share the settle-up plan, download a spreadsheet, import from Splitwise. */
+/** The group's "more" menu: share the settle-up plan, spreadsheet, Splitwise import, members; for admins also settings and finishing. */
 export function useGroupMenu(group: Group | undefined) {
   const { theme } = useTheme();
   const { state } = useStore();
@@ -25,6 +25,8 @@ export function useGroupMenu(group: Group | undefined) {
   if (!group) return { openMenu: () => {}, menu: null, notice, setNotice };
 
   const close = () => setOpen(false);
+  const phase = groupPhase(state, group.id);
+  const admin = isAdmin(state, group.id);
   const items: { icon: Icon; title: string; hint: string; onPress: () => void; hidden?: boolean }[] = [
     {
       icon: 'send',
@@ -50,7 +52,7 @@ export function useGroupMenu(group: Group | undefined) {
       icon: 'upload',
       title: 'Import from Splitwise',
       hint: 'Bring a group’s expenses over from a Splitwise export',
-      hidden: Platform.OS !== 'web',
+      hidden: Platform.OS !== 'web' || phase !== 'open',
       onPress: () => {
         close();
         router.push(`/group/${group.id}/import`);
@@ -63,6 +65,26 @@ export function useGroupMenu(group: Group | undefined) {
       onPress: () => {
         close();
         router.push(`/group/${group.id}/members`);
+      },
+    },
+    {
+      icon: 'settings',
+      title: 'Group settings',
+      hint: 'Name, invite links',
+      hidden: !admin,
+      onPress: () => {
+        close();
+        router.push(`/group/${group.id}/settings`);
+      },
+    },
+    {
+      icon: phase === 'open' ? 'flag' : 'rotate-ccw',
+      title: phase === 'open' ? 'Finish group' : 'Reopen group',
+      hint: phase === 'open' ? 'Trip over? Stop new expenses and settle up' : 'Allow new and changed expenses again',
+      hidden: !admin,
+      onPress: () => {
+        close();
+        router.push(`/group/${group.id}/finish`);
       },
     },
   ];

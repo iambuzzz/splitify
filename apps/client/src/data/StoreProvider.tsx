@@ -24,6 +24,8 @@ export interface Account {
   signOut(): Promise<void>;
   /** A fresh invite link for a group (the token is in the #fragment, which never reaches a server). */
   inviteLink(groupId: string): Promise<string>;
+  /** Turns off every invite link already sent for a group; says how many. */
+  revokeInvites(groupId: string): Promise<number>;
   preview(token: string): Promise<InvitePreview>;
   /** Joins as a placeholder I claim, or as a new member (with my profile name unless `displayName` is given). */
   join(token: string, claimMemberId?: string, displayName?: string): Promise<string>;
@@ -152,6 +154,7 @@ function RemoteStore({ children }: { children: ReactNode }) {
   const latest = useRef(remote);
   latest.current = remote;
   const pendingKey = useRef(0);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
   const pulse = useRef<Record<string, string>>({});
   const seenSent = useRef(new Set<string>());
 
@@ -325,7 +328,10 @@ function RemoteStore({ children }: { children: ReactNode }) {
         const base = !group ? undefined : open ? open.base : (loadedRef.current[group] ?? null);
         return [...list, { key, action: a, group, sentAt, base }];
       });
-      perform(a, before)
+      // One at a time, in the order they were made: an Undo must not reach the server before the change it undoes.
+      const sent = queue.current.then(() => perform(a, before));
+      queue.current = sent.catch(() => {});
+      sent
         .catch((err) => setError(words(err)))
         .then(() => {
           const doneAt = ++seq.current;
@@ -389,6 +395,9 @@ function RemoteStore({ children }: { children: ReactNode }) {
     async inviteLink(groupId) {
       const inv = await api.send('POST', `/groups/${groupId}/invites`, {});
       return `${appUrl()}/join#t=${inv.token}`;
+    },
+    async revokeInvites(groupId) {
+      return (await api.send('POST', `/groups/${groupId}/invites/revoke-all`)).revoked as number;
     },
     preview: (token) => api.send('POST', '/invites/preview', { token }),
     async join(token, claimMemberId, displayName) {

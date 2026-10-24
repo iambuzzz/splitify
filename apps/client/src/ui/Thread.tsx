@@ -26,6 +26,7 @@ export function Thread({
   seen,
   placeholder,
   empty,
+  readOnly,
 }: {
   messages: ThreadMessage[];
   nameOf: (memberId: string) => string;
@@ -36,6 +37,8 @@ export function Thread({
   seen?: string | null;
   placeholder: string;
   empty: string;
+  /** Shown instead of the box to write in (say, the group is closed). */
+  readOnly?: string;
 }) {
   const { theme } = useTheme();
   const [text, setText] = useState('');
@@ -85,7 +88,7 @@ export function Thread({
                 </T>
               </View>
             </View>
-            {m.kind === 'question' && !m.resolved && canResolve?.(m) ? (
+            {m.kind === 'question' && !m.resolved && !readOnly && canResolve?.(m) ? (
               <View style={{ marginLeft: mine ? 0 : 34 }}>
                 <Button title="Mark resolved" size="sm" variant="secondary" icon="check" onPress={() => onResolve?.(m)} />
               </View>
@@ -98,28 +101,34 @@ export function Thread({
           {seen}
         </T>
       ) : null}
-      <View style={{ gap: 8 }}>
-        <View style={[styles.row, { gap: 8 }]}>
-          <Field
-            accessibilityLabel={placeholder}
-            placeholder={placeholder}
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={send}
-            returnKeyType="send"
-            style={{ flex: 1, minWidth: 0, height: 46, fontSize: 15 }}
-          />
-          <Button title="Send" size="sm" icon="send" disabled={!text.trim()} onPress={send} />
-        </View>
-        {allowQuestions ? (
+      {readOnly ? (
+        <T size={13} color={theme.c.muted}>
+          {readOnly}
+        </T>
+      ) : (
+        <View style={{ gap: 8 }}>
           <View style={[styles.row, { gap: 8 }]}>
-            <Chip label="Ask as a question" on={question} onPress={() => setQuestion(!question)} />
-            <T size={12} color={theme.c.muted} style={{ flex: 1 }}>
-              {question ? 'It stays open until the asker or the owner marks it resolved.' : ''}
-            </T>
+            <Field
+              accessibilityLabel={placeholder}
+              placeholder={placeholder}
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={send}
+              returnKeyType="send"
+              style={{ flex: 1, minWidth: 0, height: 46, fontSize: 15 }}
+            />
+            <Button title="Send" size="sm" icon="send" disabled={!text.trim()} onPress={send} />
           </View>
-        ) : null}
-      </View>
+          {allowQuestions ? (
+            <View style={[styles.row, { gap: 8 }]}>
+              <Chip label="Ask as a question" on={question} onPress={() => setQuestion(!question)} />
+              <T size={12} color={theme.c.muted} style={{ flex: 1 }}>
+                {question ? 'It stays open until the asker or the owner marks it resolved.' : ''}
+              </T>
+            </View>
+          ) : null}
+        </View>
+      )}
     </View>
   );
 }

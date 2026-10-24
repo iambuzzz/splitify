@@ -440,6 +440,116 @@ describe('settlements', () => {
   });
 });
 
+describe('finishing a group', () => {
+  const phase = async (user: User, groupId: string) => ok(await user.get(`/groups/${groupId}`)).body.group;
+
+  it('finished: no expense changes, payments go on; the last confirmed payment closes it; reopening undoes it', async () => {
+    const t = await trip();
+    const e = ok(await t.asha.send('POST', `/groups/${t.groupId}/expenses`, hotel(t)), 201).body;
+    expect((await t.ben.send('POST', `/groups/${t.groupId}/finish`, {})).status).toBe(403);
+    const done = ok(await t.asha.send('POST', `/groups/${t.groupId}/finish`, {})).body;
+    expect(done.group).toMatchObject({ phase: 'finishing', closedAt: null });
+    expect(done.group.finishedAt).toBeTruthy();
+
+    const add = await t.asha.send('POST', `/groups/${t.groupId}/expenses`, hotel(t));
+    expect(add.status).toBe(409);
+    expect(add.body.error.code).toBe('group_finished');
+    expect((await t.asha.send('PUT', `/expenses/${e.id}`, { ...hotel(t, '500000'), baseVersion: 1 })).body.error.code).toBe('group_finished');
+    expect((await t.ben.send('POST', `/expenses/${e.id}/suggestions`, { baseVersion: 1, proposal: hotel(t, '500000') })).body.error.code).toBe('group_finished');
+    expect((await t.asha.send('POST', `/expenses/${e.id}/delete`, { baseVersion: 1 })).body.error.code).toBe('group_finished');
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/members`, { displayName: 'Dev' })).body.error.code).toBe('group_finished');
+    // Talking about it still works.
+    ok(await t.ben.send('POST', `/expenses/${e.id}/messages`, { kind: 'question', body: 'Final?' }), 201);
+
+    // Chetan (not signed up) pays Asha: recorded by Asha, it counts at once. Ben's waits for Asha.
+    ok(await t.asha.send('POST', `/groups/${t.groupId}/settlements`, { from: t.c, to: t.a, amount: '200000', method: 'cash' }), 201);
+    const p = ok(await t.ben.send('POST', `/groups/${t.groupId}/settlements`, { from: t.b, to: t.a, amount: '200000', method: 'upi' }), 201).body;
+    expect((await phase(t.asha, t.groupId)).phase).toBe('finishing');
+    ok(await t.asha.send('POST', `/settlements/${p.id}/confirm`, {}));
+    const closed = await phase(t.ben, t.groupId);
+    expect(closed.phase).toBe('closed');
+    expect(new Date(closed.closedAt).getTime()).toBeGreaterThanOrEqual(new Date(done.group.finishedAt).getTime());
+
+    // Closed is read-only.
+    expect((await t.ben.send('POST', `/expenses/${e.id}/messages`, { kind: 'text', body: 'hi' })).body.error.code).toBe('group_closed');
+    expect((await t.ben.send('POST', `/groups/${t.groupId}/pairs/${t.a}/messages`, { body: 'hi' })).body.error.code).toBe('group_closed');
+    expect((await t.ben.send('POST', `/groups/${t.groupId}/settlements`, { from: t.b, to: t.a, amount: '100', method: 'upi' })).body.error.code).toBe('group_closed');
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/expenses`, hotel(t))).body.error.code).toBe('group_closed');
+
+    const reopened = ok(await t.asha.send('POST', `/groups/${t.groupId}/reopen`, {})).body.group;
+    expect(reopened).toMatchObject({ phase: 'open', finishedAt: null, closedAt: null });
+    ok(await t.asha.send('POST', `/groups/${t.groupId}/expenses`, { ...hotel(t, '3000'), title: 'Chai' }), 201);
+  });
+
+  it('a group where everyone is already square closes as soon as it is finished, and takes nobody new', async () => {
+    const t = await trip();
+    const dev = await api.user('Dev');
+    const old = ok(await t.asha.send('POST', `/groups/${t.groupId}/invites`, {}), 201).body;
+    expect(ok(await t.asha.send('POST', `/groups/${t.groupId}/finish`, {})).body.group.phase).toBe('closed');
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/invites`, {})).body.error.code).toBe('group_closed');
+    const join = await dev.send('POST', '/invites/accept', { token: old.token });
+    expect(join.status).toBe(409);
+    expect(join.body.error.code).toBe('group_finished');
+    expect((await dev.get(`/groups/${t.groupId}`)).status).toBe(404);
+  });
+});
+
+describe('admins and owners', () => {
+  it('an admin can delete and restore anyone’s expense, and the expense says who deleted it', async () => {
+    const t = await trip();
+    const e = ok(await t.asha.send('POST', `/groups/${t.groupId}/expenses`, hotel(t)), 201).body;
+    expect((await t.ben.send('POST', `/expenses/${e.id}/delete`, { baseVersion: 1 })).status).toBe(403);
+    ok(await t.asha.send('PATCH', `/groups/${t.groupId}/members/${t.b}`, { role: 'admin' }));
+    const del = ok(await t.ben.send('POST', `/expenses/${e.id}/delete`, { baseVersion: 1 })).body;
+    expect(del).toMatchObject({ status: 'deleted', deletedBy: t.b });
+    const snap = ok(await t.asha.get(`/groups/${t.groupId}/snapshot`)).body;
+    expect(snap.expenses[0]).toMatchObject({ id: e.id, deletedBy: t.b });
+    expect(ok(await t.ben.send('POST', `/expenses/${e.id}/restore`, { baseVersion: 1 })).body).toMatchObject({ status: 'active', deletedBy: null });
+  });
+
+  it('the owner hands the group over to someone who has joined, then can leave', async () => {
+    const t = await trip();
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/leave`, {})).body.error.code).toBe('owner_must_stay');
+    expect((await t.ben.send('POST', `/groups/${t.groupId}/members/${t.a}/make-owner`, {})).status).toBe(403);
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/members/${t.c}/make-owner`, {})).body.error.code).toBe('not_joined');
+    const d = ok(await t.asha.send('POST', `/groups/${t.groupId}/members/${t.b}/make-owner`, {})).body;
+    const role = (id: string) => d.members.find((m: { id: string }) => m.id === id).role;
+    expect([role(t.a), role(t.b)]).toEqual(['admin', 'owner']);
+    expect(d.me.role).toBe('admin');
+    expect((await t.asha.send('POST', `/groups/${t.groupId}/members/${t.b}/make-owner`, {})).status).toBe(403);
+    ok(await t.asha.send('POST', `/groups/${t.groupId}/leave`, {}));
+  });
+
+  it('the owner or an admin confirms a payment to someone who hasn’t joined; a plain member can’t', async () => {
+    const t = await trip();
+    ok(await t.ben.send('POST', `/groups/${t.groupId}/expenses`, { ...hotel(t), payers: [{ memberId: t.b, amount: '600000' }] }), 201);
+    // Asha pays Chetan (not signed up): it waits for Chetan, who can't answer.
+    const p = ok(await t.asha.send('POST', `/groups/${t.groupId}/settlements`, { from: t.a, to: t.c, amount: '1000', method: 'cash' }), 201).body;
+    const q = ok(await t.ben.send('POST', `/groups/${t.groupId}/settlements`, { from: t.b, to: t.c, amount: '1000', method: 'cash' }), 201).body;
+    expect((await t.ben.send('POST', `/settlements/${q.id}/confirm`, {})).status).toBe(403);
+    const done = ok(await t.asha.send('POST', `/settlements/${q.id}/confirm`, {})).body;
+    expect(done).toMatchObject({ status: 'confirmed', decidedBy: t.a });
+    // Confirmed by mistake: the admin can undo it too; Ben (the payer) can't.
+    expect((await t.ben.send('POST', `/settlements/${q.id}/void`, { reason: 'x' })).status).toBe(403);
+    expect(ok(await t.asha.send('POST', `/settlements/${q.id}/void`, { reason: 'Marked by mistake' })).body).toMatchObject({ status: 'voided', counted: false, decidedBy: t.a });
+    expect(ok(await t.asha.send('POST', `/settlements/${p.id}/decline`, { reason: 'Not yet' })).body).toMatchObject({ status: 'declined', decidedBy: t.a });
+    // Never for someone who has joined: Ben answers for himself.
+    const r = ok(await t.asha.send('POST', `/groups/${t.groupId}/settlements`, { from: t.a, to: t.b, amount: '1000', method: 'cash' }), 201).body;
+    expect((await t.asha.send('POST', `/settlements/${r.id}/confirm`, {})).status).toBe(403);
+  });
+
+  it('an admin turns off every invite link sent so far; new ones still work', async () => {
+    const t = await trip();
+    const dev = await api.user('Dev');
+    const a = ok(await t.ben.send('POST', `/groups/${t.groupId}/invites`, {}), 201).body;
+    expect((await t.ben.send('POST', `/groups/${t.groupId}/invites/revoke-all`, {})).status).toBe(403);
+    expect(ok(await t.asha.send('POST', `/groups/${t.groupId}/invites/revoke-all`, {})).body.revoked).toBeGreaterThanOrEqual(2);
+    expect((await dev.send('POST', '/invites/preview', { token: a.token })).status).toBe(404);
+    const fresh = ok(await t.asha.send('POST', `/groups/${t.groupId}/invites`, {}), 201).body;
+    ok(await dev.send('POST', '/invites/accept', { token: fresh.token }));
+  });
+});
+
 describe('snapshot', () => {
   it('returns members, balances, full expenses and payments in one call', async () => {
     const t = await trip();

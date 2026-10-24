@@ -95,7 +95,10 @@ export function BigAmount({ children, color, size: requested = 44 }: { children:
       color={color ?? theme.c.get}
       style={[
         { letterSpacing: theme.family === 'receipt' ? -2 : -1, lineHeight: size * 1.12 },
-        theme.glow ? ({ textShadowColor: theme.glow, textShadowRadius: 24 } as TextStyle) : {},
+        // One line clips its overflow, which cut the glow off in a hard box: room for it inside, same spot outside.
+        theme.glow
+          ? ({ textShadowColor: theme.glow, textShadowRadius: 24, padding: 24, margin: -24, alignSelf: 'flex-start', maxWidth: '100%', pointerEvents: 'none' } as TextStyle)
+          : {},
       ]}
     >
       {children}

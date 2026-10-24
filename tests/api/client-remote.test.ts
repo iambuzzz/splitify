@@ -41,9 +41,9 @@ describe('app data layer against the API', () => {
     // Asha creates the group from the app (the app picks the id).
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Goa Trip', kind: 'trip', memberNames: ['Ben', 'Chetan'] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Goa Trip', memberNames: ['Ben', 'Chetan'] }, emptyRemote());
     let r = await signedIn(asha);
-    expect(r.state.groups).toEqual([{ id: groupId, name: 'Goa Trip', kind: 'trip', members: [ME, expect.any(String), expect.any(String)] }]);
+    expect(r.state.groups).toEqual([{ id: groupId, name: 'Goa Trip', members: [ME, expect.any(String), expect.any(String)] }]);
     expect(r.state.members[ME]!.name).toBe('Asha');
     const id = (name: string) => Object.values(r.state.members).find((m) => m.name === name)!.id;
     const [benId, chetanId] = [id('Ben'), id('Chetan')];
@@ -139,7 +139,7 @@ describe('app data layer against the API', () => {
     const ben = await api.user('Ben');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Hostel', kind: 'home', memberNames: [] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Hostel', memberNames: [] }, emptyRemote());
     const invite = ok(await asha.send('POST', `/groups/${groupId}/invites`, {}), 201).body;
     ok(await ben.send('POST', '/invites/accept', { token: invite.token }));
     let r = await signedIn(asha);
@@ -167,7 +167,7 @@ describe('app data layer against the API', () => {
     const asha = await api.user('Asha');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Flat', kind: 'home', memberNames: ['Ben', 'Chetan'] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Flat', memberNames: ['Ben', 'Chetan'] }, emptyRemote());
     let r = await signedIn(asha);
     const [b, c] = r.state.groups[0]!.members.filter((m) => m !== ME) as [string, string];
     const splits: SplitSpec[] = [
@@ -195,7 +195,7 @@ describe('app data layer against the API', () => {
     const ben = await api.user('Ben');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Trip', kind: 'trip', memberNames: [] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Trip', memberNames: [] }, emptyRemote());
     const invite = ok(await asha.send('POST', `/groups/${groupId}/invites`, {}), 201).body;
     ok(await ben.send('POST', '/invites/accept', { token: invite.token }));
     let r = await signedIn(asha);
@@ -232,7 +232,7 @@ describe('app data layer against the API', () => {
     const asha = await api.user('Asha');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Trip', kind: 'trip', memberNames: ['Ben'] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Trip', memberNames: ['Ben'] }, emptyRemote());
     let r = await signedIn(asha);
     const e = uuidv7();
     await perform({ type: 'add_expense', id: e, groupId, title: 'Cab', icon: 'taxi', total: 40000n, payer: ME, split: { method: 'equal', members: r.state.groups[0]!.members } }, r);
@@ -253,7 +253,7 @@ describe('app data layer against the API', () => {
     const asha = await api.user('Asha');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Trip', kind: 'trip', memberNames: ['Ben'] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Trip', memberNames: ['Ben'] }, emptyRemote());
     let r = await signedIn(asha);
     const e = uuidv7();
     await perform({ type: 'add_expense', id: e, groupId, title: 'Cab', icon: 'taxi', total: 40000n, payer: ME, split: { method: 'equal', members: r.state.groups[0]!.members } }, r);
@@ -288,7 +288,7 @@ describe('app data layer against the API', () => {
     const ben = await api.user('Ben');
     const groupId = uuidv7();
     as = asha;
-    await perform({ type: 'add_group', id: groupId, name: 'Flat', kind: 'home', memberNames: [] }, emptyRemote());
+    await perform({ type: 'add_group', id: groupId, name: 'Flat', memberNames: [] }, emptyRemote());
     const invite = ok(await asha.send('POST', `/groups/${groupId}/invites`, {}), 201).body;
     ok(await ben.send('POST', '/invites/accept', { token: invite.token }));
     let r = await signedIn(asha);

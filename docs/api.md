@@ -68,10 +68,13 @@ Every error has the form `{ "error": { "code", "message", "details"? } }`. Messa
 |---|---|---|
 | GET | `/groups` | My groups, each with `me`, `memberCount` and `myBalance` |
 | POST | `/groups` | `{ name, kind?, currency?, displayName?, placeholders? }` → group detail (201) |
-| GET | `/groups/:groupId` | Members, non-zero balances, and the simplified `transfers` (current members only) |
-| PATCH | `/groups/:groupId` | Admins: `name`, `kind`, `reviewThreshold` (null turns review mode off), `reviewRequired`, `archived` |
+| GET | `/groups/:groupId` | Members, non-zero balances, and the simplified `transfers` (current members only). `group.phase`: `open`, `finishing` (finished, payments still open) or `closed` (finished and everyone square: read-only), with `finishedAt` and `closedAt` |
+| PATCH | `/groups/:groupId` | Admins: `name`, `kind`, `reviewThreshold` (null turns review mode off), `reviewRequired` |
+| POST | `/groups/:groupId/finish` | Owner or admin. No new or changed expenses, members, imports or invites after this (409 `group_finished`); payments and chat go on. Closes by itself once nobody owes anything and no payment waits; closed groups refuse every change (409 `group_closed`) |
+| POST | `/groups/:groupId/reopen` | Owner or admin. Undoes finishing (and closing) |
 | POST | `/groups/:groupId/members` | Add a placeholder by name (201) |
 | PATCH | `/groups/:groupId/members/:memberId` | Rename: yourself, an admin, or a placeholder. Role: owner only |
+| POST | `/groups/:groupId/members/:memberId/make-owner` | Owner only, to someone who has joined. The old owner becomes an admin |
 | POST | `/groups/:groupId/members/:memberId/remove` | Admins. `{ acknowledgeBalance }` is required when the person's balance is not zero |
 | POST | `/groups/:groupId/leave` | Same balance rule. The owner can't leave while others who have joined remain |
 
@@ -81,6 +84,7 @@ Every error has the form `{ "error": { "code", "message", "details"? } }`. Messa
 | GET | `/groups/:groupId/invites` | Invites that still work |
 | POST | `/groups/:groupId/invites` | `{ expiresInDays?, maxUses? }` → `{ id, token, expiresAt, maxUses }`. The token is shown only once |
 | POST | `/groups/:groupId/invites/:inviteId/revoke` | The creator or an admin |
+| POST | `/groups/:groupId/invites/revoke-all` | Owner or admin: every invite link still working stops → `{ revoked }` |
 | POST | `/invites/preview` | `{ token }` → group name, member count, placeholders to claim. Does not join |
 | POST | `/invites/accept` | `{ token, claimMemberId?, displayName? }` → group detail |
 
@@ -88,7 +92,7 @@ Every error has the form `{ "error": { "code", "message", "details"? } }`. Messa
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/groups/:groupId/expenses` | Newest first (up to 500). Each row has `counted`, `pendingChange`, `lines`, `openSuggestions`, `openQuestions` and `disputed`. Drafts appear only to their creator |
-| GET | `/expenses/:expenseId` | Full detail: versions with lines, review, disputes, suggestions, messages, `ownerIds`, `canEdit` |
+| GET | `/expenses/:expenseId` | Full detail: versions with lines, review, disputes, suggestions, messages, `ownerIds`, `canEdit`, `deletedBy` (who deleted it, when deleted) |
 | POST | `/groups/:groupId/expenses` | Content plus `{ id?, kind?, draft? }` (201). Counts at once, unless review mode holds it |
 | PUT | `/expenses/:expenseId` | Content plus `{ baseVersion }`. Creator or payer only; everyone else suggests |
 | POST | `/expenses/:expenseId/submit` · `delete` · `restore` | `{ baseVersion }` |
@@ -147,10 +151,10 @@ The snapshot also carries `pairMessages` (my pair threads only) and `seen` (filt
 |---|---|---|
 | GET | `/groups/:groupId/settlements` | Newest first. A former member sees only their own |
 | POST | `/groups/:groupId/settlements` | `{ from, to, amount, method, note? }` (201). The recorder must be one of the two, and may have left the group (settling up after leaving). Recorded by the receiver: `confirmed` (counts). Recorded by the payer: `awaiting_confirmation` |
-| POST | `/settlements/:id/confirm` | Receiver. Repeating it returns the same result |
-| POST | `/settlements/:id/decline` | Receiver, `{ reason }` |
+| POST | `/settlements/:id/confirm` | Receiver; for a receiver who hasn't joined, the owner or an admin (`decidedBy` says who). Repeating it returns the same result |
+| POST | `/settlements/:id/decline` | Receiver (or, as above, the owner or an admin), `{ reason }` |
 | POST | `/settlements/:id/withdraw` | Whoever recorded it, while it awaits confirmation |
-| POST | `/settlements/:id/void` | Receiver, on a confirmed payment, `{ reason }`. Reverses it in the ledger |
+| POST | `/settlements/:id/void` | Receiver (or, for a receiver who hasn't joined, the owner or an admin), on a confirmed payment, `{ reason }`. Reverses it in the ledger; status `voided` |
 
 ## How the rules map to the database
 

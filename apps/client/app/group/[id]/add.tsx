@@ -3,12 +3,12 @@ import { parseAmount } from '@app/money';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Platform, Pressable, TextInput, View } from 'react-native';
-import { ME, type Action, type ExpenseIcon, type SplitSpec, current, inr, memberName, parsePercent, parseShares, percentText, sharesFor, splitWords } from '../../../src/data/model';
+import { ME, type Action, type ExpenseIcon, type SplitSpec, current, groupPhase, inr, memberName, parsePercent, parseShares, percentText, sharesFor, splitWords } from '../../../src/data/model';
 import { uuidv7 } from '../../../src/data/ids';
 import { useStore } from '../../../src/data/StoreProvider';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { Header } from '../../../src/ui/Header';
-import { Missing } from '../../../src/ui/Missing';
+import { Finished, Missing } from '../../../src/ui/Missing';
 import { type PickedReceipt, ReceiptPicker } from '../../../src/ui/Receipts';
 import { Avatar, Button, Card, Chip, Divider, Field, Label, Screen, T, fitSize, noOutline, styles, useWide } from '../../../src/ui/kit';
 
@@ -31,6 +31,8 @@ export default function AddExpense() {
   const group = state.groups.find((g) => g.id === id);
   if (!group) return <Missing />;
   if (eid && !state.expenses.some((e) => e.id === eid)) return <Missing what="expense" back={`/group/${group.id}`} />;
+  const phase = groupPhase(state, group.id);
+  if (phase !== 'open') return <Finished groupId={group.id} closed={phase === 'closed'} />;
   return <ExpenseForm key={`${id}|${eid ?? ''}`} />;
 }
 
@@ -72,7 +74,7 @@ function ExpenseForm() {
   const wide = useWide();
   const group = state.groups.find((g) => g.id === id);
   const existing = eid ? state.expenses.find((e) => e.id === eid) : undefined;
-  const mode: 'add' | 'edit' | 'suggest' = existing ? (modeParam === 'suggest' ? 'suggest' : 'edit') : 'add';
+  const mode: 'add' | 'edit' | 'suggest' = existing ? (modeParam === 'suggest' || !existing.owners.includes(ME) ? 'suggest' : 'edit') : 'add';
   const v = existing ? current(existing) : undefined;
   const members = group?.members ?? [];
   const receipt = theme.family === 'receipt';

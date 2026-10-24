@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { simplifyDebts } from '@app/ledger';
 import type { Role } from '@app/workflow';
 import type { Router } from '../app';
-import { type GroupRow, type Membership, activeMember, group, isAdmin, membership, recordEvent } from '../context';
+import { type GroupRow, type Membership, activeMember, group, groupPhase, isAdmin, membership, recordEvent, requireOpen } from '../context';
 import type { Tx } from '../db';
 import { ApiError, notFound } from '../errors';
 import { uuidv7 } from '../ids';
@@ -93,8 +93,7 @@ export function groupRoutes(r: Router) {
          name = coalesce($2, name),
          kind = coalesce($3, kind),
          review_threshold_minor = case when $4::boolean then $5::bigint else review_threshold_minor end,
-         review_required = coalesce($6, review_required),
-         archived_at = case when $7::boolean is null then archived_at when $7 then coalesce(archived_at, now()) else null end
+         review_required = coalesce($6, review_required)
        where id = $1`,
       [
         m.group.id,
@@ -103,10 +102,31 @@ export function groupRoutes(r: Router) {
         body.reviewThreshold !== undefined,
         body.reviewThreshold ?? null,
         body.reviewRequired ?? null,
-        body.archived ?? null,
       ],
     );
     await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'group', entityId: m.group.id, type: 'group.updated', payload: body });
+    return groupDetail(tx, await membership(tx, m.group.id));
+  });
+
+  // Finishing: no new or changed expenses from now on; payments go on, and once everyone is square
+  // the group reads as closed (see groupPhase). Reopening undoes both.
+  r.mutate('POST', '/groups/:groupId/finish', s.empty, async ({ tx, params }) => {
+    const m = await activeMember(tx, params.groupId!);
+    if (!isAdmin(m)) throw new ApiError(403, 'forbidden', 'Only the group owner or an admin can finish the group');
+    if (m.group.archived_at === null) {
+      await tx.query('update app.groups set archived_at = now() where id = $1', [m.group.id]);
+      await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'group', entityId: m.group.id, type: 'group.finished' });
+    }
+    return groupDetail(tx, await membership(tx, m.group.id));
+  });
+
+  r.mutate('POST', '/groups/:groupId/reopen', s.empty, async ({ tx, params }) => {
+    const m = await activeMember(tx, params.groupId!);
+    if (!isAdmin(m)) throw new ApiError(403, 'forbidden', 'Only the group owner or an admin can reopen the group');
+    if (m.group.archived_at !== null) {
+      await tx.query('update app.groups set archived_at = null where id = $1', [m.group.id]);
+      await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'group', entityId: m.group.id, type: 'group.reopened' });
+    }
     return groupDetail(tx, await membership(tx, m.group.id));
   });
 
@@ -118,6 +138,7 @@ export function groupRoutes(r: Router) {
     s.addMember,
     async ({ tx, params, body }) => {
       const m = await activeMember(tx, params.groupId!);
+      await requireOpen(tx, m);
       const id = body.id ?? uuidv7();
       await tx.query('insert into app.members (id, group_id, display_name) values ($1, $2, $3)', [id, m.group.id, body.displayName]);
       await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'member', entityId: id, type: 'member.added', payload: { displayName: body.displayName } });
@@ -144,6 +165,20 @@ export function groupRoutes(r: Router) {
     );
     await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'member', entityId: target.id, type: 'member.updated', payload: body });
     return groupDetail(tx, m);
+  });
+
+  // Handing the group over: they become the owner, I stay on as an admin (and may then leave).
+  r.mutate('POST', '/groups/:groupId/members/:memberId/make-owner', s.empty, async ({ tx, params }) => {
+    const m = await activeMember(tx, params.groupId!);
+    if (m.role !== 'owner') throw new ApiError(403, 'forbidden', 'Only the group owner can hand the group over');
+    const target = await member(tx, m, params.memberId!);
+    if (target.is_me) throw new ApiError(409, 'invalid_state', 'You are already the owner');
+    if (target.status !== 'active') throw new ApiError(409, 'invalid_state', 'This person is no longer in the group');
+    if (!target.linked) throw new ApiError(422, 'not_joined', 'Only someone who has joined can be the owner');
+    await tx.query(`update app.members set role = 'admin' where id = $1`, [m.memberId]);
+    await tx.query(`update app.members set role = 'owner' where id = $1`, [target.id]);
+    await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'member', entityId: target.id, type: 'member.made_owner' });
+    return groupDetail(tx, await membership(tx, m.group.id));
   });
 
   r.mutate('POST', '/groups/:groupId/members/:memberId/remove', s.leave, async ({ tx, params, body }) => {
@@ -200,6 +235,7 @@ export function groupRoutes(r: Router) {
     s.createInvite,
     async ({ tx, params, body }) => {
       const m = await activeMember(tx, params.groupId!);
+      await requireOpen(tx, m);
       // The token goes into the link; only its hash is stored, so the database cannot leak working links.
       const token = randomBytes(32).toString('base64url');
       const id = uuidv7();
@@ -225,6 +261,15 @@ export function groupRoutes(r: Router) {
     if (r.rows.length === 0) throw notFound('Invite not found');
     await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'invite', entityId: params.inviteId!, type: 'invite.revoked' });
     return { revoked: true };
+  });
+
+  // Links already sent stop working (say, one was shared too widely). New links can be made at once.
+  r.mutate('POST', '/groups/:groupId/invites/revoke-all', s.empty, async ({ tx, params }) => {
+    const m = await activeMember(tx, params.groupId!);
+    if (!isAdmin(m)) throw new ApiError(403, 'forbidden', 'Only the group owner or an admin can turn off invite links');
+    const r = await tx.query('update app.invites set revoked_at = now() where group_id = $1 and revoked_at is null and expires_at > now() returning id', [m.group.id]);
+    await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'group', entityId: m.group.id, type: 'invite.revoked_all', payload: { count: r.rows.length } });
+    return { revoked: r.rows.length };
   });
 
   // The token travels in the body, not the URL, so it never lands in request logs.
@@ -254,6 +299,8 @@ export function groupRoutes(r: Router) {
     const memberId = r.rows[0]!.member_id;
     const g = await tx.query<{ group_id: string }>('select group_id from app.members where id = $1', [memberId]);
     const m = await membership(tx, g.rows[0]!.group_id);
+    // A finished group takes nobody new (the whole change is rolled back).
+    if (m.group.archived_at !== null) throw new ApiError(409, 'group_finished', 'This group is finished, so it can’t take new people. Ask the owner to reopen it.');
     await recordEvent(tx, { groupId: m.group.id, actor: memberId, entityType: 'member', entityId: memberId, type: 'member.joined', payload: { claimed: Boolean(body.claimMemberId) } });
     return groupDetail(tx, m);
   });
@@ -316,8 +363,9 @@ export async function groupDetail(tx: Tx, m: Membership) {
     [m.group.id],
   );
   const list = balances.rows.map((b) => ({ memberId: b.member_id, amount: BigInt(b.balance_minor) }));
+  const { phase, closedAt } = await groupPhase(tx, m.group);
   return {
-    group: group(m.group),
+    group: { ...group(m.group), phase, closedAt },
     me: { memberId: m.memberId, role: m.role, status: m.status },
     members: members.rows.map((x) => ({
       id: x.id,

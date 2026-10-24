@@ -75,7 +75,7 @@ describe('client demo model (M1)', () => {
   });
 
   it('new groups get the current user plus placeholder members', () => {
-    const s = reducer(seed(), { type: 'add_group', id: 'g-manali', name: 'Manali', kind: 'trip', memberNames: ['Zoya', 'Arjun'] });
+    const s = reducer(seed(), { type: 'add_group', id: 'g-manali', name: 'Manali', memberNames: ['Zoya', 'Arjun'] });
     expect(s.groups[0]!.members).toHaveLength(3);
     expect(s.groups[0]!.members[0]).toBe(ME);
   });

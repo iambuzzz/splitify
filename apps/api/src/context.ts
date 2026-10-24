@@ -48,6 +48,44 @@ export function isAdmin(m: Membership): boolean {
   return m.role === 'owner' || m.role === 'admin';
 }
 
+/**
+ * Where a group is in its life. `archived_at` is when an owner or admin finished it. Finished, it
+ * takes no new or changed expenses but payments go on; once nobody owes anything and no payment
+ * waits for a confirmation, it is closed (read-only). Closed is worked out from the ledger each
+ * time, never stored, so it can't disagree with the balances.
+ */
+export type GroupPhase = 'open' | 'finishing' | 'closed';
+
+export async function groupPhase(tx: Tx, group: GroupRow): Promise<{ phase: GroupPhase; closedAt: Date | null }> {
+  if (group.archived_at === null) return { phase: 'open', closedAt: null };
+  const r = await tx.query<{ busy: boolean; last_paid: Date | null }>(
+    `select exists (select 1 from app.member_balances where group_id = $1 and balance_minor <> 0)
+         or exists (select 1 from app.settlements where group_id = $1 and status = 'awaiting_confirmation') as busy,
+            (select max(decided_at) from app.settlements where group_id = $1 and status = 'confirmed') as last_paid`,
+    [group.id],
+  );
+  const { busy, last_paid } = r.rows[0]!;
+  if (busy) return { phase: 'finishing', closedAt: null };
+  return { phase: 'closed', closedAt: last_paid && last_paid > group.archived_at ? last_paid : group.archived_at };
+}
+
+/** Expenses can be added or changed only while the group isn't finished. */
+export async function requireOpen(tx: Tx, m: Membership): Promise<void> {
+  if (m.group.archived_at === null) return;
+  const { phase } = await groupPhase(tx, m.group);
+  throw phase === 'closed'
+    ? new ApiError(409, 'group_closed', 'This group is closed. An owner or admin can reopen it.')
+    : new ApiError(409, 'group_finished', 'This group is finished: only payments now. An owner or admin can reopen it to change expenses.');
+}
+
+/** A closed group is read-only. */
+export async function requireNotClosed(tx: Tx, m: Membership): Promise<void> {
+  if (m.group.archived_at === null) return;
+  if ((await groupPhase(tx, m.group)).phase === 'closed') {
+    throw new ApiError(409, 'group_closed', 'This group is closed. An owner or admin can reopen it.');
+  }
+}
+
 export function reviewPolicy(group: GroupRow): ReviewPolicy {
   return group.review_threshold_minor === null
     ? { enabled: false, thresholdMinor: 0n, approvalsRequired: group.review_required }
@@ -88,7 +126,7 @@ export function group(row: GroupRow) {
     currency: row.currency,
     reviewThreshold: row.review_threshold_minor,
     reviewRequired: row.review_required,
-    archived: row.archived_at !== null,
+    finishedAt: row.archived_at,
     createdAt: row.created_at,
   };
 }

@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { router, usePathname } from 'expo-router';
 import { type ReactNode, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { ME, balanceOf, betweenMe, inbox, inr, netAll, newMarks } from '../data/model';
+import { ME, balanceOf, betweenMe, groupPhase, inbox, inr, netAll, newMarks } from '../data/model';
 import { useMyName, useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { Avatar, BigAmount, Dot, Label, T } from './kit';
@@ -68,20 +68,22 @@ export function Sidebar() {
       <View style={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 4 }}>
         <Label>Groups</Label>
       </View>
-      {state.groups.map((g) => {
+      {/* Closed groups (finished, everyone square) go last. */}
+      {[...state.groups].sort((x, y) => Number(groupPhase(state, x.id) === 'closed') - Number(groupPhase(state, y.id) === 'closed')).map((g) => {
         const b = balanceOf(state, g.id, ME);
+        const closed = groupPhase(state, g.id) === 'closed';
         const active = path.startsWith(`/group/${g.id}`);
         const people = (state.roster[g.id] ?? []).filter((m) => m.active && m.id !== ME);
         const myRole = (state.roster[g.id] ?? []).find((m) => m.id === ME)?.role;
         return (
           <View key={g.id}>
             <Pressable accessibilityRole="link" onPress={() => router.navigate(`/group/${g.id}`)} style={item(active)}>
-              <T size={15} weight={active || marks.groups.has(g.id) ? 'bold' : 'semibold'} mono={receipt} numberOfLines={1} style={{ flex: 1 }}>
+              <T size={15} weight={active || marks.groups.has(g.id) ? 'bold' : 'semibold'} mono={receipt} numberOfLines={1} color={closed && !active ? theme.c.muted : theme.c.text} style={{ flex: 1 }}>
                 {receipt ? g.name.toUpperCase() : g.name}
               </T>
               {marks.groups.has(g.id) ? <Dot style={{ marginRight: 8 }} /> : null}
               <T size={14} weight="bold" mono={receipt} color={b > 0n ? theme.c.get : b < 0n ? theme.c.owe : theme.c.muted}>
-                {b === 0n ? (receipt ? 'PAID' : 'settled') : inr(b, { sign: true, symbol: !receipt })}
+                {closed ? (receipt ? 'PAID' : 'closed') : b === 0n ? (receipt ? 'SETTLED' : 'settled') : inr(b, { sign: true, symbol: !receipt })}
               </T>
             </Pressable>
             {active ? (

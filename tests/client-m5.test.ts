@@ -46,7 +46,7 @@ describe('why do I owe this (M5)', () => {
   it('explains a payment to someone I never shared a bill with', () => {
     // Asha pays for Bilal; Bilal pays more for Chitra. Pooled, Asha is owed and Chitra owes her.
     let s = seed();
-    s = reducer(s, { type: 'add_group', id: 'g', name: 'G', kind: 'trip', memberNames: ['B', 'C'] });
+    s = reducer(s, { type: 'add_group', id: 'g', name: 'G', memberNames: ['B', 'C'] });
     s = reducer(s, { type: 'add_expense', id: 'x1', groupId: 'g', title: 'A for B', icon: 'other', total: 10000n, payer: ME, split: { method: 'equal', members: ['gm0'] } });
     s = reducer(s, { type: 'add_expense', id: 'x2', groupId: 'g', title: 'B for C', icon: 'other', total: 10000n, payer: 'gm0', split: { method: 'equal', members: ['gm1'] } });
     const x = explainBalance(s, 'g', ME);
@@ -122,7 +122,7 @@ describe('Splitwise import (M5)', () => {
     s = reducer(s, { type: 'record_payment', groupId: 'goa', from: ME, to: 'dev', amount: 10000n, via: 'cash' });
     const file = parseSplitwise(groupCsv(s, 'goa'));
     // A fresh group with the same names, then the import through the reducer.
-    s = reducer(s, { type: 'add_group', id: 'copy', name: 'Copy', kind: 'trip', memberNames: ['Bilal', 'Chitra', 'Dev'] });
+    s = reducer(s, { type: 'add_group', id: 'copy', name: 'Copy', memberNames: ['Bilal', 'Chitra', 'Dev'] });
     const guess = guessPeople(file, s, 'copy');
     expect(guess).toEqual({ Asha: ME, Bilal: 'copym0', Chitra: 'copym1', Dev: 'copym2' });
     const items = planImport(file, guess as Record<string, string>);

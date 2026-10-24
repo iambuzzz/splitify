@@ -1,25 +1,17 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import type { Group } from '../src/data/model';
 import { uuidv7 } from '../src/data/ids';
 import { useMyName, useStore } from '../src/data/StoreProvider';
 import { useTheme } from '../src/theme/ThemeProvider';
 import { Header } from '../src/ui/Header';
-import { Avatar, Button, Chip, Field, Label, Screen, T, styles } from '../src/ui/kit';
-
-const KINDS: { kind: Group['kind']; label: string }[] = [
-  { kind: 'trip', label: 'Trip' },
-  { kind: 'home', label: 'Flat / home' },
-  { kind: 'food', label: 'Food & outings' },
-];
+import { Avatar, Button, Field, Label, Screen, T, styles } from '../src/ui/kit';
 
 export default function NewGroup() {
   const { theme } = useTheme();
   const { dispatch } = useStore();
   const myName = useMyName();
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<Group['kind']>('trip');
   const [people, setPeople] = useState('');
   const names = people
     .split(',')
@@ -30,7 +22,7 @@ export default function NewGroup() {
     if (!valid) return;
     // The app picks the id, so the new group can open at once and a resent request can't create two.
     const id = uuidv7();
-    dispatch({ type: 'add_group', id, name: name.trim(), kind, memberNames: names });
+    dispatch({ type: 'add_group', id, name: name.trim(), memberNames: names });
     router.replace(`/group/${id}`);
   };
 
@@ -40,14 +32,6 @@ export default function NewGroup() {
       <View style={{ gap: 8 }}>
         <Label>Group name</Label>
         <Field accessibilityLabel="Group name" placeholder="e.g. Manali trip" value={name} onChangeText={setName} autoFocus returnKeyType="next" />
-      </View>
-      <View style={{ gap: 8 }}>
-        <Label>What is it for?</Label>
-        <View style={[styles.row, { flexWrap: 'wrap', gap: 8 }]}>
-          {KINDS.map((k) => (
-            <Chip key={k.kind} label={k.label} on={kind === k.kind} onPress={() => setKind(k.kind)} />
-          ))}
-        </View>
       </View>
       <View style={{ gap: 8 }}>
         <Label>Who's in? (besides you)</Label>

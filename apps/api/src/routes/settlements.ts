@@ -1,6 +1,6 @@
 import { type SettlementAction, type SettlementState, type SettlementStatus, recordSettlement, transitionSettlement } from '@app/workflow';
 import type { Router } from '../app';
-import { membership, recordEvent } from '../context';
+import { isAdmin, membership, recordEvent, requireNotClosed } from '../context';
 import type { Tx } from '../db';
 import { ApiError, notFound, workflowError } from '../errors';
 import { uuidv7 } from '../ids';
@@ -37,6 +37,7 @@ export function settlementRoutes(r: Router) {
       // recordSettlement requires the recorder to be one of the two; the (group_id, member)
       // foreign keys require both to be in this group (422 invalid_reference otherwise).
       const m = await membership(tx, params.groupId!);
+      await requireNotClosed(tx, m);
       const res = recordSettlement({ from: body.from, to: body.to, amount: BigInt(body.amount) }, m.actor);
       if (!res.ok) throw workflowError(res.error);
 
@@ -92,7 +93,12 @@ async function runAction(tx: Tx, id: string, action: SettlementAction) {
   const row = await loadRow(tx, id, true);
   // Former members may act on their own payments (the state machine allows only the two people in it).
   const m = await membership(tx, row.group_id);
-  const res = transitionSettlement(toState(row), action, m.actor);
+  await requireNotClosed(tx, m);
+  // Someone who hasn't joined (a name a friend added) can't confirm a payment to them; the group's
+  // owner or an admin answers for them (and can undo it). decided_by keeps who actually did it.
+  const forPlaceholder = action.type !== 'withdraw' && m.memberId !== row.to_member && m.status === 'active' && isAdmin(m) && !(await joined(tx, row.to_member));
+  const actor = forPlaceholder ? { ...m.actor, memberId: row.to_member } : m.actor;
+  const res = transitionSettlement(toState(row), action, actor);
   if (!res.ok) throw workflowError(res.error);
   if (res.duplicate) return settlement(row);
 
@@ -107,9 +113,14 @@ async function runAction(tx: Tx, id: string, action: SettlementAction) {
     entityType: 'settlement',
     entityId: id,
     type: `settlement.${res.state.status}`,
-    payload: { amount: row.amount_minor, from: row.from_member, to: row.to_member },
+    payload: { amount: row.amount_minor, from: row.from_member, to: row.to_member, ...(forPlaceholder ? { onBehalfOf: row.to_member } : {}) },
   });
   return settlement(await loadRow(tx, id));
+}
+
+async function joined(tx: Tx, memberId: string): Promise<boolean> {
+  const r = await tx.query<{ linked: boolean }>('select user_id is not null as linked from app.members where id = $1', [memberId]);
+  return r.rows[0]?.linked ?? true;
 }
 
 async function loadRow(tx: Tx, id: string, lock = false): Promise<SettlementRow> {

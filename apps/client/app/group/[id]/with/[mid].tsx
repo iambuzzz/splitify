@@ -1,13 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { uuidv7 } from '../../../../src/data/ids';
-import { ME, groupExpenses, inr, myEffect, pairThread, seenMark, sharesFor, current, transfersOf } from '../../../../src/data/model';
+import { ME, groupExpenses, groupPhase, inr, myEffect, pairThread, seenMark, sharesFor, current, transfersOf } from '../../../../src/data/model';
 import { useStore } from '../../../../src/data/StoreProvider';
 import { useTheme } from '../../../../src/theme/ThemeProvider';
 import { Header } from '../../../../src/ui/Header';
 import { Missing } from '../../../../src/ui/Missing';
 import { Avatar, BigAmount, Button, Card, Label, Note, Screen, T, isHovered, styles } from '../../../../src/ui/kit';
+import { ConfirmPayment, type PaymentDraft, PaymentList } from '../../../../src/ui/Payments';
 import { Thread } from '../../../../src/ui/Thread';
 
 /** You and one other member: what's between you, payments, and a private thread about settling up. */
@@ -20,6 +21,7 @@ export default function WithMember() {
   const thread = group && other ? pairThread(state, group.id, other.id) : [];
   const lastTheirs = thread.filter((m) => m.by !== ME).at(-1);
   const awaitingToMe = state.payments.filter((p) => p.groupId === id && p.status === 'awaiting' && p.from === mid && p.to === ME);
+  const [ask, setAsk] = useState<PaymentDraft | null>(null);
 
   // Opening the page marks their messages, and payments waiting for me, as seen.
   useEffect(() => {
@@ -38,9 +40,8 @@ export default function WithMember() {
   const plan = transfersOf(state, group.id).find((t) => (t.from === ME && t.to === other.id) || (t.from === other.id && t.to === ME));
   const iPay = plan?.from === ME;
   const myPending = state.payments.filter((p) => p.groupId === group.id && p.status === 'awaiting' && p.from === ME && p.to === other.id);
-  const history = state.payments.filter(
-    (p) => p.groupId === group.id && p.status === 'confirmed' && ((p.from === ME && p.to === other.id) || (p.from === other.id && p.to === ME)),
-  );
+  const history = state.payments.filter((p) => p.groupId === group.id && ((p.from === ME && p.to === other.id) || (p.from === other.id && p.to === ME)));
+  const closed = groupPhase(state, group.id) === 'closed';
   const shared = groupExpenses(state, group.id).filter((e) => {
     const v = current(e);
     const people = new Set([e.payer, ...(sharesFor(v.total, v.split, e.id) ?? []).map((s) => s.memberId)]);
@@ -80,15 +81,15 @@ export default function WithMember() {
               <T size={14} color={theme.c.muted}>
                 {iPay ? `Waiting for ${them} to confirm your payment.` : `${them} says this is paid. Confirm it below.`}
               </T>
-            ) : (
+            ) : ask ? null : (
             <View style={[styles.row, { gap: 10, flexWrap: 'wrap' }]}>
               {iPay ? (
                 <>
-                  <Button title="I've paid (UPI)" size="md" onPress={() => dispatch({ type: 'record_payment', groupId: group.id, from: ME, to: other.id, amount: plan.amount, via: 'upi' })} />
-                  <Button title="Paid in cash" size="md" variant="secondary" onPress={() => dispatch({ type: 'record_payment', groupId: group.id, from: ME, to: other.id, amount: plan.amount, via: 'cash' })} />
+                  <Button title="I've paid (UPI)" size="md" onPress={() => setAsk({ from: ME, to: other.id, amount: plan.amount, via: 'upi' })} />
+                  <Button title="Paid in cash" size="md" variant="secondary" onPress={() => setAsk({ from: ME, to: other.id, amount: plan.amount, via: 'cash' })} />
                 </>
               ) : (
-                <Button title={`Got it from ${them}`} size="md" variant="secondary" onPress={() => dispatch({ type: 'record_payment', groupId: group.id, from: other.id, to: ME, amount: plan.amount, via: 'cash' })} />
+                <Button title={`Got it from ${them}`} size="md" variant="secondary" onPress={() => setAsk({ from: other.id, to: ME, amount: plan.amount, via: 'cash' })} />
               )}
             </View>
             )}
@@ -99,6 +100,8 @@ export default function WithMember() {
           </T>
         )}
       </Card>
+
+      {ask ? <ConfirmPayment groupId={group.id} draft={ask} name={(m) => (m === ME ? 'You' : them)} onDone={() => setAsk(null)} /> : null}
 
       {awaitingToMe.map((p) => (
         <Note key={p.id}>
@@ -112,11 +115,16 @@ export default function WithMember() {
         </Note>
       ))}
       {myPending.map((p) => (
-        <T key={p.id} size={14} color={theme.c.muted}>
-          You said you paid {inr(p.amount)}. Waiting for {them} to confirm
-          {seenMark(state, group.id, other.id, 'settlement', p.id) ? ` · Seen by ${them}` : ''}.
-        </T>
+        <View key={p.id} style={[styles.between, { gap: 10 }]}>
+          <T size={14} color={theme.c.muted} style={{ flex: 1 }}>
+            You said you paid {inr(p.amount)}. Waiting for {them} to confirm
+            {seenMark(state, group.id, other.id, 'settlement', p.id) ? ` · Seen by ${them}` : ''}.
+          </T>
+          {!closed ? <Button title="Cancel" size="sm" variant="secondary" onPress={() => dispatch({ type: 'withdraw_payment', id: p.id })} /> : null}
+        </View>
       ))}
+
+      <PaymentList title="Payments between you" payments={history} name={(m) => (m === ME ? 'You' : them)} readOnly={closed} />
 
       <Card>
         <Label>{`Private chat with ${them}`}</Label>
@@ -127,6 +135,7 @@ export default function WithMember() {
           placeholder={`Message ${them} about settling up…`}
           empty={`Only you and ${them} see this. Use it to sort out payments between you.`}
           onSend={(text) => dispatch({ type: 'pair_message', groupId: group.id, with: other.id, messageId: uuidv7(), text })}
+          readOnly={closed ? 'This group is closed, so the chat is read-only.' : undefined}
         />
       </Card>
 
@@ -154,11 +163,6 @@ export default function WithMember() {
         </Card>
       ) : null}
 
-      {history.length ? (
-        <T size={13} color={theme.c.muted}>
-          Paid between you: {history.map((p) => `${p.from === ME ? 'you → ' + them : them + ' → you'} ${inr(p.amount)}`).join(' · ')}
-        </T>
-      ) : null}
     </Screen>
   );
 }

@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { ME, type Expense, balanceOf, current, inr, memberName, percentText, reducer, sharesFor, splitWords } from '../data/model';
+import { ME, type Expense, balanceOf, canDelete, current, groupPhase, inr, memberName, percentText, reducer, sharesFor, splitWords } from '../data/model';
 import { uuidv7 } from '../data/ids';
 import { expenseShareText } from '../data/share';
 import { appUrl, useStore } from '../data/StoreProvider';
@@ -24,7 +24,12 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
   const [sharing, setSharing] = useState(false);
   const receipt = theme.family === 'receipt';
   const v = current(e);
-  const owner = e.payer === ME;
+  const owner = e.owners.includes(ME);
+  // Group owner or admin deleting someone else's expense (spam, a mistake): everyone sees who did it.
+  const mayDelete = canDelete(state, e);
+  const asAdmin = mayDelete && !owner;
+  const phase = groupPhase(state, e.groupId);
+  const editable = phase === 'open';
   const name = (id: string) => (id === ME ? 'You' : state.members[id]?.name ?? id);
   const shares = sharesFor(v.total, v.split, e.id) ?? [];
   // What each person put in for a shares or percentage split ("2 shares", "25%"); nothing for equal or exact.
@@ -59,6 +64,13 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
     </Pressable>
   ) : null;
 
+  const deletedLine =
+    e.deleted && e.deletedBy ? (
+      <T size={13} weight="semibold" color={theme.c.owe} mono={receipt}>
+        {e.deletedBy === ME ? 'You deleted this' : `Deleted by ${name(e.deletedBy)}${e.owners.includes(e.deletedBy) ? '' : ' (admin)'}`}
+      </T>
+    ) : null;
+
   const breakdown = (
     <View style={{ gap: 8 }}>
       {shares.map((s) => {
@@ -87,6 +99,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             {e.deleted ? ' (deleted)' : ''}
           </T>
           <Label>{meta}</Label>
+          {deletedLine}
           {editedLine}
           <Divider />
           {breakdown}
@@ -115,6 +128,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
               <T size={13} color={theme.c.muted}>
                 {meta}
               </T>
+              {deletedLine}
               {editedLine}
             </View>
           </View>
@@ -163,14 +177,14 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
                 “{s.reason}”
               </T>
             ) : null}
-            {owner ? (
+            {owner && editable ? (
               <View style={[styles.row, { gap: 10 }]}>
                 <Button title="Accept" size="md" flex={1} onPress={() => dispatch({ type: 'decide', id: e.id, suggestionId: s.id, accept: true })} />
                 <Button title="Keep as is" size="md" variant="secondary" flex={1} onPress={() => dispatch({ type: 'decide', id: e.id, suggestionId: s.id, accept: false })} />
               </View>
             ) : (
               <T size={13} color={theme.c.attnText}>
-                Waiting for {name(e.payer)} to accept.
+                {editable ? `Waiting for ${owner ? 'you' : name(e.payer)} to accept.` : 'The group is finished, so expenses can’t change now.'}
               </T>
             )}
           </Note>
@@ -193,6 +207,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             onSend={(text, question) => dispatch({ type: 'post', id: e.id, messageId: uuidv7(), text, question })}
             canResolve={(m) => m.by === ME || owner}
             onResolve={(m) => dispatch({ type: 'resolve', id: e.id, messageId: m.id })}
+            readOnly={phase === 'closed' ? 'This group is closed, so the chat is read-only.' : undefined}
           />
         ) : (
           <T size={14} color={theme.c.muted}>
@@ -207,9 +222,10 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             Delete {e.title}?
           </T>
           <T size={14} color={theme.c.muted}>
+            {asAdmin ? `You’re deleting ${name(e.payer)}’s expense as an admin. Everyone sees you deleted it. ` : ''}
             {before === after
-              ? 'Your balance stays the same. Everyone in the group can see it was deleted, and you can restore it.'
-              : `Your balance in this group changes from ${describe(before)} to ${describe(after)}. Payments already confirmed stay as they are. You can restore it later.`}
+              ? `Your balance stays the same. Everyone in the group can see it was deleted, and ${asAdmin ? 'it can be restored' : 'you can restore it'}.`
+              : `Your balance in this group changes from ${describe(before)} to ${describe(after)}. Payments already confirmed stay as they are. ${asAdmin ? 'It can be restored later.' : 'You can restore it later.'}`}
           </T>
           <View style={[styles.row, { gap: 10 }]}>
             <Button
@@ -227,17 +243,19 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
         </Card>
       ) : !e.deleted ? (
         <View style={[styles.row, { flexWrap: 'wrap', gap: 10 }]}>
-          <Button
-            title={owner ? 'Edit' : 'Suggest a change'}
-            icon={owner ? 'edit-2' : 'git-pull-request'}
-            size="md"
-            variant="secondary"
-            onPress={() => router.push(`/group/${e.groupId}/add?eid=${e.id}&mode=${owner ? 'edit' : 'suggest'}`)}
-          />
+          {editable ? (
+            <Button
+              title={owner ? 'Edit' : 'Suggest a change'}
+              icon={owner ? 'edit-2' : 'git-pull-request'}
+              size="md"
+              variant="secondary"
+              onPress={() => router.push(`/group/${e.groupId}/add?eid=${e.id}&mode=${owner ? 'edit' : 'suggest'}`)}
+            />
+          ) : null}
           <Button title="Share" icon="send" size="md" variant="secondary" onPress={() => setSharing(true)} />
-          {owner ? <Button title="Delete" size="md" variant="danger-text" onPress={() => setConfirmDelete(true)} /> : null}
+          {mayDelete && editable ? <Button title={asAdmin ? 'Delete (admin)' : 'Delete'} size="md" variant="danger-text" onPress={() => setConfirmDelete(true)} /> : null}
         </View>
-      ) : owner ? (
+      ) : mayDelete && editable ? (
         <Button title="Restore" size="md" variant="secondary" onPress={() => dispatch({ type: 'restore', id: e.id })} />
       ) : null}
 
@@ -247,7 +265,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             {showHistory ? 'Hide history' : e.versions.length > 1 ? `See history (${e.versions.length} versions)` : 'See history'}
           </T>
         </Pressable>
-        {!owner && !e.deleted ? (
+        {!owner && !e.deleted && phase !== 'closed' ? (
           <Pressable
             accessibilityRole="button"
             onPress={() => dispatch(myDispute ? { type: 'withdraw_dispute', id: e.id } : { type: 'dispute', id: e.id, reason: 'Something looks wrong' })}

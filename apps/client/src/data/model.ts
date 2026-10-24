@@ -156,6 +156,10 @@ export interface Expense {
   canChat: boolean;
   suggestions: Suggestion[];
   receipts: Receipt[];
+  /** Who may edit it: whoever added it and whoever paid. */
+  owners: string[];
+  /** Deleted: by whom (the owner, or an admin). */
+  deletedBy?: string;
 }
 
 export interface Payment {
@@ -165,7 +169,10 @@ export interface Payment {
   to: string;
   amount: bigint;
   via: 'upi' | 'cash';
-  status: 'awaiting' | 'confirmed' | 'declined';
+  /** `voided`: confirmed, then undone by the receiver (a mistake); it no longer counts. */
+  status: 'awaiting' | 'confirmed' | 'declined' | 'voided';
+  /** Who recorded it (the payer or the receiver). */
+  by?: string;
   /** When it was recorded (ISO). */
   at?: string;
 }
@@ -173,9 +180,18 @@ export interface Payment {
 export interface Group {
   id: string;
   name: string;
-  kind: 'trip' | 'home' | 'food';
   members: string[];
+  /** When an owner or admin finished it (ISO); see groupPhase. */
+  finishedAt?: string;
+  /** When the last payment made everyone square, as the server saw it (ISO). */
+  closedAt?: string;
 }
+
+/**
+ * open: anything goes. finishing: finished, so no new or changed expenses, but payments go on.
+ * closed: finished and nobody owes anything, nothing waits for a confirmation: read-only.
+ */
+export type GroupPhase = 'open' | 'finishing' | 'closed';
 
 export interface State {
   members: Record<string, Member>;
@@ -330,7 +346,7 @@ export interface InboxItem {
 export function inbox(s: State, me = ME): InboxItem[] {
   const items: InboxItem[] = [];
   for (const e of s.expenses) {
-    if (e.deleted || e.payer !== me) continue;
+    if (e.deleted || !e.owners.includes(me)) continue;
     for (const sg of e.suggestions) {
       if (sg.status === 'open') {
         items.push({ key: sg.id, kind: 'suggestion', groupId: e.groupId, expenseId: e.id, who: sg.by, text: `wants ${e.title} at ${inr(sg.total)}` });
@@ -346,8 +362,9 @@ export function inbox(s: State, me = ME): InboxItem[] {
     }
   }
   for (const p of s.payments) {
-    if (p.status === 'awaiting' && p.to === me) {
-      items.push({ key: p.id, kind: 'payment', groupId: p.groupId, paymentId: p.id, who: p.from, text: `says they paid you ${inr(p.amount)}` });
+    if (p.status === 'awaiting' && answersPayment(s, p, me)) {
+      const to = p.to === me ? 'you' : (s.members[p.to]?.name ?? 'someone');
+      items.push({ key: p.id, kind: 'payment', groupId: p.groupId, paymentId: p.id, who: p.from, text: `says they paid ${to} ${inr(p.amount)}` });
     }
   }
   for (const u of unreadPairs(s, me)) {
@@ -489,10 +506,35 @@ export function newMarks(s: State, me = ME) {
 export const roleOf = (s: State, groupId: string, memberId = ME): Role => s.roster[groupId]?.find((m) => m.id === memberId)?.role ?? 'member';
 export const isAdmin = (s: State, groupId: string) => roleOf(s, groupId) !== 'member';
 
+/** Worked out from the balances, as the server does, so a confirmed last payment closes the group at once. */
+export function groupPhase(s: State, groupId: string): GroupPhase {
+  const g = s.groups.find((x) => x.id === groupId);
+  if (!g?.finishedAt) return 'open';
+  const busy = balancesOf(s, groupId).some((b) => b.amount !== 0n) || s.payments.some((p) => p.groupId === groupId && p.status === 'awaiting');
+  return busy ? 'finishing' : 'closed';
+}
+
+/** What's still open before a group can close: who pays whom, payments to confirm, questions, suggestions, flags. */
+export function beforeClosing(s: State, groupId: string) {
+  const expenses = groupExpenses(s, groupId);
+  return {
+    transfers: transfersOf(s, groupId),
+    awaiting: s.payments.filter((p) => p.groupId === groupId && p.status === 'awaiting'),
+    questions: expenses.flatMap((e) => e.messages.filter((m) => m.kind === 'question' && !m.resolved).map((m) => ({ expense: e, message: m }))),
+    suggestions: expenses.flatMap((e) => e.suggestions.filter((x) => x.status === 'open').map((x) => ({ expense: e, suggestion: x }))),
+    disputes: expenses.flatMap((e) => e.disputes.map((d) => ({ expense: e, by: d.by, reason: d.reason }))),
+  };
+}
+
 // ---------- actions ----------
 
 export type Action =
-  | { type: 'add_group'; id: string; name: string; kind: Group['kind']; memberNames: string[] }
+  | { type: 'add_group'; id: string; name: string; memberNames: string[] }
+  | { type: 'rename_group'; groupId: string; name: string }
+  | { type: 'finish_group'; groupId: string }
+  | { type: 'reopen_group'; groupId: string }
+  /** The owner hands the group over; they stay on as an admin. */
+  | { type: 'make_owner'; groupId: string; memberId: string }
   | { type: 'add_expense'; id: string; groupId: string; title: string; icon: ExpenseIcon; total: bigint; payer: string; split: SplitSpec }
   | { type: 'edit_expense'; id: string; title: string; total: bigint; payer: string; split: SplitSpec }
   /** From a Splitwise file: a dated expense with exact shares (member id → amount, summing to `total`). */
@@ -505,16 +547,19 @@ export type Action =
   | { type: 'pair_message'; groupId: string; with: string; messageId: string; text: string }
   | { type: 'add_member'; groupId: string; memberId: string; name: string }
   | { type: 'remove_member'; groupId: string; memberId: string; acknowledgeBalance: boolean }
+  | { type: 'leave_group'; groupId: string; acknowledgeBalance: boolean }
   | { type: 'set_role'; groupId: string; memberId: string; role: 'admin' | 'member' }
   | { type: 'dispute'; id: string; reason: string }
   | { type: 'withdraw_dispute'; id: string }
   | { type: 'delete'; id: string }
   | { type: 'restore'; id: string }
-  | { type: 'record_payment'; groupId: string; from: string; to: string; amount: bigint; via: 'upi' | 'cash' }
+  | { type: 'record_payment'; groupId: string; from: string; to: string; amount: bigint; via: 'upi' | 'cash'; paymentId?: string }
   | { type: 'add_receipt'; id: string; receipt: Receipt }
   | { type: 'remove_receipt'; id: string; receiptId: string }
   | { type: 'confirm_payment'; id: string }
-  | { type: 'decline_payment'; id: string };
+  | { type: 'decline_payment'; id: string }
+  | { type: 'void_payment'; id: string }
+  | { type: 'withdraw_payment'; id: string };
 
 /** The group an action changes (for a new group, its own id). */
 export function actionGroup(s: State, a: Action): string | undefined {
@@ -540,6 +585,19 @@ function withVersion(e: Expense, total: bigint, split: SplitSpec, by: string, ti
 const today = () => new Date().toISOString().slice(0, 10);
 const now = () => new Date().toISOString();
 
+/**
+ * Who answers "did you get it?" for a payment: the receiver, or, when the receiver is a name that
+ * hasn't joined yet, the group's owner or an admin on their behalf.
+ */
+export function answersPayment(s: State, p: Payment, me = ME): boolean {
+  if (p.to === me) return true;
+  const receiver = s.roster[p.groupId]?.find((m) => m.id === p.to);
+  return !!receiver && !receiver.joined && roleOf(s, p.groupId, me) !== 'member';
+}
+
+/** Delete and restore: the expense's owners, or the group's owner or an admin. */
+export const canDelete = (s: State, e: Expense, me = ME) => e.owners.includes(me) || roleOf(s, e.groupId, me) !== 'member';
+
 export function reducer(s: State, a: Action, me = ME): State {
   const find = (id: string) => s.expenses.find((e) => e.id === id);
   const uid = (p: string) => `${p}${s.nextId}`;
@@ -556,8 +614,22 @@ export function reducer(s: State, a: Action, me = ME): State {
         return mid;
       });
       const roster = [{ id: me, role: 'owner' as const, joined: true, active: true }, ...ids.map((m) => ({ id: m, role: 'member' as const, joined: false, active: true }))];
-      return { ...s, members, groups: [{ id, name: a.name, kind: a.kind, members: [me, ...ids] }, ...s.groups], roster: { ...s.roster, [id]: roster } };
+      return { ...s, members, groups: [{ id, name: a.name, members: [me, ...ids] }, ...s.groups], roster: { ...s.roster, [id]: roster } };
     }
+    case 'rename_group':
+      return { ...s, groups: s.groups.map((g) => (g.id === a.groupId ? { ...g, name: a.name } : g)) };
+    case 'finish_group':
+      return { ...s, groups: s.groups.map((g) => (g.id === a.groupId ? { ...g, finishedAt: g.finishedAt ?? now() } : g)) };
+    case 'reopen_group':
+      return { ...s, groups: s.groups.map((g) => (g.id === a.groupId ? { ...g, finishedAt: undefined, closedAt: undefined } : g)) };
+    case 'make_owner':
+      return {
+        ...s,
+        roster: {
+          ...s.roster,
+          [a.groupId]: (s.roster[a.groupId] ?? []).map((m) => (m.id === a.memberId ? { ...m, role: 'owner' as const } : m.id === me ? { ...m, role: 'admin' as const } : m)),
+        },
+      };
     case 'add_expense': {
       const e: Expense = {
         id: a.id,
@@ -573,6 +645,7 @@ export function reducer(s: State, a: Action, me = ME): State {
         canChat: true,
         suggestions: [],
         receipts: [],
+        owners: [...new Set([me, a.payer])],
       };
       return { ...s, expenses: [e, ...s.expenses] };
     }
@@ -593,24 +666,25 @@ export function reducer(s: State, a: Action, me = ME): State {
         canChat: true,
         suggestions: [],
         receipts: [],
+        owners: [...new Set([me, a.payer])],
       };
       return { ...s, expenses: [e, ...s.expenses] };
     }
     case 'edit_expense': {
       const e = find(a.id);
-      if (!e || e.payer !== me) return s;
+      if (!e || !e.owners.includes(me)) return s;
       return mapExpense(s, a.id, (x) => ({ ...withVersion(x, a.total, a.split, me, a.title, a.payer), title: a.title, payer: a.payer }));
     }
     case 'suggest': {
       const e = find(a.id);
-      if (!e || e.payer === me) return s;
+      if (!e || e.owners.includes(me)) return s;
       const sg: Suggestion = { id: uid('s'), by: me, total: a.total, split: a.split, reason: a.reason, baseVersion: current(e).n, status: 'open' };
       return bump(mapExpense(s, a.id, (x) => ({ ...x, suggestions: [...x.suggestions, sg] })));
     }
     case 'decide': {
       const e = find(a.id);
       const sg = e?.suggestions.find((x) => x.id === a.suggestionId);
-      if (!e || !sg || e.payer !== me || sg.status !== 'open' || sg.baseVersion !== current(e).n) return s;
+      if (!e || !sg || !e.owners.includes(me) || sg.status !== 'open' || sg.baseVersion !== current(e).n) return s;
       if (!a.accept) {
         return mapExpense(s, a.id, (x) => ({
           ...x,
@@ -644,6 +718,8 @@ export function reducer(s: State, a: Action, me = ME): State {
         groups: s.groups.map((g) => (g.id === a.groupId ? { ...g, members: [...g.members, a.memberId] } : g)),
         roster: { ...s.roster, [a.groupId]: [...(s.roster[a.groupId] ?? []), { id: a.memberId, role: 'member', joined: false, active: true }] },
       };
+    case 'leave_group':
+      return reducer(s, { type: 'remove_member', groupId: a.groupId, memberId: me, acknowledgeBalance: a.acknowledgeBalance }, me);
     case 'remove_member':
       return {
         ...s,
@@ -661,10 +737,11 @@ export function reducer(s: State, a: Action, me = ME): State {
       );
     case 'withdraw_dispute':
       return mapExpense(s, a.id, (x) => ({ ...x, disputes: x.disputes.filter((d) => d.by !== me) }));
+    // Owners, and the group's owner or admins (spam, mistakes); the expense says who deleted it.
     case 'delete':
-      return mapExpense(s, a.id, (x) => (x.payer === me ? { ...x, deleted: true } : x));
+      return mapExpense(s, a.id, (x) => (canDelete(s, x, me) ? { ...x, deleted: true, deletedBy: me } : x));
     case 'restore':
-      return mapExpense(s, a.id, (x) => (x.payer === me ? { ...x, deleted: false } : x));
+      return mapExpense(s, a.id, (x) => (canDelete(s, x, me) ? { ...x, deleted: false, deletedBy: undefined } : x));
     case 'add_receipt':
       return mapExpense(s, a.id, (x) => (x.receipts.some((r) => r.id === a.receipt.id) ? x : { ...x, receipts: [...x.receipts, a.receipt] }));
     case 'remove_receipt':
@@ -672,7 +749,7 @@ export function reducer(s: State, a: Action, me = ME): State {
     case 'record_payment': {
       if (me !== a.from && me !== a.to) return s;
       // Receiver-recorded payments count immediately; payer-recorded ones wait for the receiver.
-      const p: Payment = { id: uid('p'), groupId: a.groupId, from: a.from, to: a.to, amount: a.amount, via: a.via, status: me === a.to ? 'confirmed' : 'awaiting', at: now() };
+      const p: Payment = { id: a.paymentId ?? uid('p'), groupId: a.groupId, from: a.from, to: a.to, amount: a.amount, via: a.via, status: me === a.to ? 'confirmed' : 'awaiting', by: me, at: now() };
       return bump({ ...s, payments: [...s.payments, p] });
     }
     case 'confirm_payment':
@@ -680,11 +757,16 @@ export function reducer(s: State, a: Action, me = ME): State {
       return {
         ...s,
         payments: s.payments.map((p) =>
-          p.id === a.id && p.to === me && p.status === 'awaiting'
+          p.id === a.id && answersPayment(s, p, me) && p.status === 'awaiting'
             ? { ...p, status: a.type === 'confirm_payment' ? ('confirmed' as const) : ('declined' as const) }
             : p,
         ),
       };
+    // A mistake: whoever answers for the receiver undoes a counted payment; the payer cancels one still waiting.
+    case 'void_payment':
+      return { ...s, payments: s.payments.map((p) => (p.id === a.id && p.status === 'confirmed' && answersPayment(s, p, me) ? { ...p, status: 'voided' as const } : p)) };
+    case 'withdraw_payment':
+      return { ...s, payments: s.payments.map((p) => (p.id === a.id && p.status === 'awaiting' && (p.by ?? p.from) === me ? { ...p, status: 'declined' as const } : p)) };
   }
 }
 
@@ -695,6 +777,7 @@ const all4 = [ME, 'bilal', 'chitra', 'dev'];
 export function seed(): State {
   const nights: SplitSpec = { method: 'shares', shares: { [ME]: 3, bilal: 3, chitra: 2, dev: 3 } };
   const blank = { deleted: false, disputes: [], messages: [], canChat: true, suggestions: [], receipts: [] };
+  const owned = (payer: string) => ({ payer, owners: [payer] });
   return {
     nextId: 100,
     members: Object.fromEntries(
@@ -721,16 +804,16 @@ export function seed(): State {
     ],
     seen: [{ groupId: 'goa', by: 'bilal', type: 'expense', id: 'e1', version: 1, at: '2026-10-22T09:00:00.000Z' }],
     groups: [
-      { id: 'goa', name: 'Goa Trip', kind: 'trip', members: all4 },
-      { id: 'flat', name: 'Flat 302', kind: 'home', members: [ME, 'rohan', 'meera'] },
-      { id: 'lunch', name: 'Office lunch', kind: 'food', members: [ME, 'kabir', 'isha', 'tara', 'neel', 'meera'] },
+      { id: 'goa', name: 'Goa Trip', members: all4 },
+      { id: 'flat', name: 'Flat 302', members: [ME, 'rohan', 'meera'] },
+      { id: 'lunch', name: 'Office lunch', members: [ME, 'kabir', 'isha', 'tara', 'neel', 'meera'], finishedAt: '2026-10-12T10:00:00.000Z', closedAt: '2026-10-12T10:00:00.000Z' },
     ],
     expenses: [
-      { ...blank, id: 'e3', groupId: 'goa', title: 'Taxi', icon: 'taxi', date: '2026-10-22', payer: 'dev', versions: [
+      { ...blank, id: 'e3', groupId: 'goa', title: 'Taxi', icon: 'taxi', date: '2026-10-22', ...owned('dev'), versions: [
           { n: 1, total: 120000n, split: { method: 'equal', members: [ME, 'bilal', 'chitra', 'dev'] }, by: 'dev', title: 'Cab', payer: 'dev', at: '2026-10-22T08:10:00.000Z' },
           { n: 2, total: 90000n, split: { method: 'equal', members: [ME, 'bilal', 'dev'] }, by: 'dev', title: 'Taxi', payer: 'dev', at: '2026-10-22T11:40:00.000Z' },
         ] },
-      { ...blank, id: 'e2', groupId: 'goa', title: 'Dinner at Thalassa', icon: 'food', date: '2026-10-21', payer: 'bilal', versions: [{ n: 1, total: 240000n, split: { method: 'equal', members: all4 }, by: 'bilal' }] },
+      { ...blank, id: 'e2', groupId: 'goa', title: 'Dinner at Thalassa', icon: 'food', date: '2026-10-21', ...owned('bilal'), versions: [{ n: 1, total: 240000n, split: { method: 'equal', members: all4 }, by: 'bilal' }] },
       {
         ...blank,
         id: 'e1',
@@ -738,14 +821,14 @@ export function seed(): State {
         title: 'Hotel',
         icon: 'hotel',
         date: '2026-10-21',
-        payer: ME,
+        ...owned(ME),
         versions: [{ n: 1, total: 660000n, split: nights, by: ME }],
         messages: [{ id: 'q1', by: 'bilal', kind: 'question', text: 'Breakfast included tha?', at: '2026-10-22T09:30:00.000Z', resolved: false }],
         suggestions: [{ id: 's1', by: 'dev', total: 600000n, split: nights, reason: 'Discount code laga tha, final bill ₹6,000 aaya.', baseVersion: 1, status: 'open' }],
       },
-      { ...blank, id: 'f2', groupId: 'flat', title: 'Wi-Fi bill', icon: 'wifi', date: '2026-10-21', payer: 'rohan', versions: [{ n: 1, total: 120000n, split: { method: 'equal', members: [ME, 'rohan', 'meera'] }, by: 'rohan' }] },
-      { ...blank, id: 'f1', groupId: 'flat', title: 'Groceries', icon: 'cart', date: '2026-10-18', payer: 'meera', versions: [{ n: 1, total: 135000n, split: { method: 'equal', members: [ME, 'rohan', 'meera'] }, by: 'meera' }] },
-      { ...blank, id: 'l1', groupId: 'lunch', title: 'Team lunch', icon: 'food', date: '2026-10-10', payer: ME, versions: [{ n: 1, total: 300000n, split: { method: 'equal', members: [ME, 'kabir', 'isha', 'tara', 'neel', 'meera'] }, by: ME }] },
+      { ...blank, id: 'f2', groupId: 'flat', title: 'Wi-Fi bill', icon: 'wifi', date: '2026-10-21', ...owned('rohan'), versions: [{ n: 1, total: 120000n, split: { method: 'equal', members: [ME, 'rohan', 'meera'] }, by: 'rohan' }] },
+      { ...blank, id: 'f1', groupId: 'flat', title: 'Groceries', icon: 'cart', date: '2026-10-18', ...owned('meera'), versions: [{ n: 1, total: 135000n, split: { method: 'equal', members: [ME, 'rohan', 'meera'] }, by: 'meera' }] },
+      { ...blank, id: 'l1', groupId: 'lunch', title: 'Team lunch', icon: 'food', date: '2026-10-10', ...owned(ME), versions: [{ n: 1, total: 300000n, split: { method: 'equal', members: [ME, 'kabir', 'isha', 'tara', 'neel', 'meera'] }, by: ME }] },
     ],
     payments: [
       { id: 'p1', groupId: 'goa', from: 'bilal', to: ME, amount: 30000n, via: 'upi', status: 'awaiting' },

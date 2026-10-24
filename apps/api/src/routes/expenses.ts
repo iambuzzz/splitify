@@ -11,7 +11,7 @@ import {
   transitionSuggestion,
 } from '@app/workflow';
 import type { Router } from '../app';
-import { type Membership, activeMember, activeMemberIds, membership, recordEvent, reviewPolicy, reviewerIds } from '../context';
+import { type Membership, activeMember, activeMemberIds, membership, recordEvent, requireNotClosed, requireOpen, reviewPolicy, reviewerIds } from '../context';
 import type { Tx } from '../db';
 import { ApiError, notFound, workflowError } from '../errors';
 import { RECEIPT_COLUMNS, type ReceiptRow, hasReceiptsTable, receiptJson } from './receipts';
@@ -120,6 +120,7 @@ export function expenseRoutes(r: Router) {
     s.createExpense,
     async ({ tx, params, body }) => {
       const m = await activeMember(tx, params.groupId!);
+      await requireOpen(tx, m);
       const id = body.id ?? uuidv7();
       const content = normalize(body);
       checkMembers(content, await activeMemberIds(tx, m.group.id));
@@ -177,6 +178,7 @@ export function expenseRoutes(r: Router) {
     s.createSuggestion,
     async ({ tx, params, body }) => {
       const x = await load(tx, params.expenseId!, true);
+      await requireOpen(tx, x.m);
       if (x.e.status === 'draft' || x.e.status === 'deleted') {
         throw new ApiError(409, 'invalid_state', 'You can suggest changes only to saved expenses');
       }
@@ -293,6 +295,7 @@ async function expenseRow(tx: Tx, id: string, lock: boolean): Promise<ExpenseRow
 async function load(tx: Tx, id: string, change: boolean): Promise<Loaded> {
   const first = await expenseRow(tx, id, false);
   const m = change ? await activeMember(tx, first.group_id) : await membership(tx, first.group_id);
+  if (change) await requireNotClosed(tx, m);
   const e = change ? await expenseRow(tx, id, true) : first;
   // Drafts are private to whoever created them.
   if (e.status === 'draft' && e.created_by !== m.memberId) throw notFound('Expense not found');
@@ -393,6 +396,8 @@ async function suggestion(tx: Tx, id: string) {
 
 async function runAction(tx: Tx, id: string, action: ExpenseAction) {
   const x = await load(tx, id, true);
+  // Disputes are about what's there; everything else changes the money, which a finished group doesn't.
+  if (action.type !== 'dispute' && action.type !== 'withdraw_dispute') await requireOpen(tx, x.m);
   const result = transitionExpense(x.state, action, x.m.actor, { policy: x.policy, affected: await affectedMembers(tx, x) });
   if (!result.ok) throw workflowError(result.error);
   if (!result.duplicate) {
@@ -434,6 +439,7 @@ async function runAction(tx: Tx, id: string, action: ExpenseAction) {
 }
 
 async function applyEdit(tx: Tx, x: Loaded, raw: s.ExpenseContent, baseVersion: number, suggestionId?: string) {
+  await requireOpen(tx, x.m);
   const content = normalize(raw);
   checkMembers(content, await allowedMembers(tx, x));
   const computed = compute(content, x.e.kind, x.e.id, x.m.group.currency);
@@ -721,6 +727,20 @@ interface DetailRows {
   inExpense: boolean;
   /** Signed-up current members (who may review). */
   reviewers: Set<string>;
+  /** Who deleted it, when it is deleted (the owner, or an admin). */
+  deletedBy?: string | null;
+}
+
+/** The member who last deleted each of these expenses (from the activity record). */
+async function deleters(tx: Tx, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const r = await tx.query<{ entity_id: string; actor_member_id: string }>(
+    `select distinct on (entity_id) entity_id, actor_member_id from app.activity_events
+      where entity_type = 'expense' and type = 'expense.delete' and entity_id = any ($1::uuid[])
+      order by entity_id, created_at desc`,
+    [ids],
+  );
+  return new Map(r.rows.map((x) => [x.entity_id, x.actor_member_id]));
 }
 
 const SUGGESTION_COLUMNS = 'id, author_id, base_version, proposal, reason, status, decided_by, decided_at, decline_reason, applied_version, created_at';
@@ -748,6 +768,7 @@ async function detail(tx: Tx, x: Loaded) {
     seen: seen.rows,
     inExpense: await inExpense(tx, e.id),
     reviewers: x.state.review ? await reviewerIds(tx, e.group_id) : new Set(),
+    deletedBy: e.status === 'deleted' ? ((await deleters(tx, [e.id])).get(e.id) ?? null) : null,
   });
 }
 
@@ -795,6 +816,7 @@ export async function expenseDetails(tx: Tx, m: Membership, ids: string[]) {
     : [];
   const inExp = await tx.query<{ id: string; ok: boolean }>('select id, app.is_in_expense(id) as ok from unnest ($1::uuid[]) as id', [ids]);
   const reviewers = await reviewerIds(tx, m.group.id);
+  const deletedBy = await deleters(tx, rows.rows.filter((e) => e.status === 'deleted').map((e) => e.id));
 
   const by = <T, K extends keyof T>(list: T[], key: K) => {
     const out = new Map<T[K], T[]>();
@@ -831,6 +853,7 @@ export async function expenseDetails(tx: Tx, m: Membership, ids: string[]) {
           receipts: receiptsOf.get(id) ?? [],
           inExpense: inExpense.get(id) ?? false,
           reviewers,
+          deletedBy: deletedBy.get(id) ?? null,
         },
       ),
     ];
@@ -867,6 +890,7 @@ function render(x: Loaded, d: DetailRows) {
     restorableVersion: e.restorable_version,
     ownerIds: x.state.ownerIds,
     canEdit: m.status === 'active' && x.state.ownerIds.includes(m.memberId),
+    deletedBy: d.deletedBy ?? null,
     review,
     disputes: d.disputes.map((d) => ({ id: d.id, memberId: d.member_id, reason: d.reason, createdAt: d.created_at })),
     versions: [...x.versions.values()].map((v) => ({

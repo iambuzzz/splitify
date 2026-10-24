@@ -1,11 +1,11 @@
 /**
  * Theme tokens. A theme is data: colours, font families per weight, radii, and which component
  * family ("cards" or "receipt") renders it. Adding a theme later = adding one object here.
- * Values come from the approved design canvas (pages A1, A3, B1, B4).
+ * Values come from the design canvas (pages A1–A4, B1–B4).
  */
 
 export type ThemeFamily = 'cards' | 'receipt';
-export type ThemeId = 'mint' | 'neon-lime' | 'receipt' | 'thermal';
+export type ThemeId = 'mint' | 'neon-lime' | 'neon-blue' | 'neon-magenta' | 'receipt' | 'receipt-dark' | 'kraft' | 'thermal';
 
 export interface ThemeColors {
   bg: string;
@@ -67,6 +67,50 @@ const manrope: ThemeFonts = {
   monoBold: 'Manrope_700Bold',
 };
 
+const bricolage: ThemeFonts = {
+  regular: 'BricolageGrotesque_400Regular',
+  medium: 'BricolageGrotesque_500Medium',
+  semibold: 'BricolageGrotesque_600SemiBold',
+  bold: 'BricolageGrotesque_700Bold',
+  heavy: 'BricolageGrotesque_800ExtraBold',
+  mono: 'JetBrainsMono_500Medium',
+  monoBold: 'JetBrainsMono_700Bold',
+};
+
+/** The cards layout on near-black with one neon accent (A2, A3, A4): only the accent and its tints differ. */
+function neon(id: ThemeId, name: string, accent: string, rgb: string, owe: string, accentDim: string, tint: string): Theme {
+  return {
+    id,
+    name,
+    family: 'cards',
+    dark: true,
+    c: {
+      bg: '#050506',
+      surface: '#0F1012',
+      surfaceAlt: '#141518',
+      text: '#F4F5F6',
+      muted: '#9A9EA6',
+      border: '#232529',
+      borderStrong: '#2A2C31',
+      primary: accent,
+      onPrimary: '#0F1012',
+      get: accent,
+      owe,
+      attnBg: '#0F1012',
+      attnBorder: accentDim,
+      attnText: accent,
+      tint,
+      chip: '#1B1C20',
+      overlay: 'rgba(0,0,0,0.72)',
+    },
+    f: spaceGrotesk,
+    r: { card: 18, button: 16, input: 14 },
+    glow: `rgba(${rgb},0.30)`,
+    avatars: [{ bg: '#1C1D21', fg: '#F4F5F6' }],
+    swatch: ['#050506', accent, '#F4F5F6'],
+  };
+}
+
 const spaceGrotesk: ThemeFonts = {
   regular: 'SpaceGrotesk_400Regular',
   medium: 'SpaceGrotesk_500Medium',
@@ -114,6 +158,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     ],
     swatch: ['#F4F7F5', '#0B6E4F', '#111816'],
   },
+  'neon-blue': neon('neon-blue', 'Neon Blue', '#3B82FF', '59,130,255', '#FF8F6B', '#1D3A73', '#0D1A33'),
+  'neon-magenta': neon('neon-magenta', 'Neon Magenta', '#FF2E88', '255,46,136', '#FFB547', '#6E1A40', '#2A0B1A'),
   'neon-lime': {
     id: 'neon-lime',
     name: 'Neon Lime',
@@ -168,19 +214,80 @@ export const THEMES: Record<ThemeId, Theme> = {
       chip: '#F3EEE3',
       overlay: 'rgba(26,24,20,0.5)',
     },
+    f: bricolage,
+    r: { card: 0, button: 999, input: 999 },
+    glow: null,
+    avatars: [{ bg: '#1A1814', fg: '#FFFFFF' }],
+    swatch: ['#EDE7DA', '#FFFDF7', '#1F5FD1'],
+  },
+  'receipt-dark': {
+    id: 'receipt-dark',
+    name: 'Receipt Dark',
+    family: 'receipt',
+    dark: true,
+    c: {
+      bg: '#121110',
+      surface: '#1C1B19',
+      surfaceAlt: '#26241F',
+      text: '#F2EDE2',
+      muted: '#A39D92',
+      border: '#3D3A34',
+      borderStrong: '#3D3A34',
+      primary: '#F2EDE2',
+      onPrimary: '#121110',
+      get: '#7EA6FF',
+      owe: '#FF9B6A',
+      attnBg: '#3A3216',
+      attnBorder: '#3A3216',
+      attnText: '#F2EDE2',
+      tint: '#2A2615',
+      chip: '#26241F',
+      overlay: 'rgba(0,0,0,0.7)',
+    },
+    f: bricolage,
+    r: { card: 0, button: 999, input: 999 },
+    glow: null,
+    avatars: [{ bg: '#F2EDE2', fg: '#121110' }],
+    swatch: ['#121110', '#1C1B19', '#7EA6FF'],
+  },
+  kraft: {
+    id: 'kraft',
+    name: 'Kraft',
+    family: 'receipt',
+    dark: false,
+    c: {
+      bg: '#CDB48C',
+      surface: '#FBF4E6',
+      surfaceAlt: '#F1E6D0',
+      text: '#2A1C10',
+      // A shade darker than the canvas (#6E5A44) so small grey labels stay readable on the kraft paper.
+      muted: '#554331',
+      border: '#C9B48F',
+      borderStrong: '#B39B73',
+      primary: '#2A1C10',
+      onPrimary: '#FFFFFF',
+      get: '#1F7A4A',
+      owe: '#C0262D',
+      attnBg: '#FFC9C2',
+      attnBorder: '#FFC9C2',
+      attnText: '#2A1C10',
+      tint: '#F6E7C8',
+      chip: '#F1E6D0',
+      overlay: 'rgba(42,28,16,0.5)',
+    },
     f: {
-      regular: 'BricolageGrotesque_400Regular',
-      medium: 'BricolageGrotesque_500Medium',
-      semibold: 'BricolageGrotesque_600SemiBold',
-      bold: 'BricolageGrotesque_700Bold',
-      heavy: 'BricolageGrotesque_800ExtraBold',
+      regular: 'Fraunces_400Regular',
+      medium: 'Fraunces_500Medium',
+      semibold: 'Fraunces_600SemiBold',
+      bold: 'Fraunces_700Bold',
+      heavy: 'Fraunces_800ExtraBold',
       mono: 'JetBrainsMono_500Medium',
       monoBold: 'JetBrainsMono_700Bold',
     },
     r: { card: 0, button: 999, input: 999 },
     glow: null,
-    avatars: [{ bg: '#1A1814', fg: '#FFFFFF' }],
-    swatch: ['#EDE7DA', '#FFFDF7', '#1F5FD1'],
+    avatars: [{ bg: '#2A1C10', fg: '#FFFFFF' }],
+    swatch: ['#CDB48C', '#FBF4E6', '#1F7A4A'],
   },
   thermal: {
     id: 'thermal',
@@ -214,5 +321,5 @@ export const THEMES: Record<ThemeId, Theme> = {
   },
 };
 
-export const THEME_ORDER: ThemeId[] = ['mint', 'neon-lime', 'receipt', 'thermal'];
+export const THEME_ORDER: ThemeId[] = ['mint', 'neon-lime', 'neon-blue', 'neon-magenta', 'receipt', 'kraft', 'receipt-dark', 'thermal'];
 export const DEFAULT_THEME: ThemeId = 'mint';

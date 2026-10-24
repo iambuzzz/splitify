@@ -2,14 +2,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
-import { ME, type InboxItem, balanceOf, groupExpenses, inbox, inboxHref, inr, netAll, newMarks } from '../src/data/model';
+import { ME, type Group, type InboxItem, balanceOf, groupExpenses, groupPhase, inbox, inboxHref, inr, netAll, newMarks } from '../src/data/model';
 import { useMyName, useStore } from '../src/data/StoreProvider';
 import { useTheme } from '../src/theme/ThemeProvider';
-import { Avatar, BigAmount, Button, Card, Divider, Dot, Label, Note, Screen, T, styles, useWide } from '../src/ui/kit';
+import { Avatar, BigAmount, Button, Card, Divider, Dot, Label, Note, Screen, T, isHovered, styles, useWide } from '../src/ui/kit';
 import { Logo } from '../src/ui/Logo';
 import { ThemePicker } from '../src/ui/ThemePicker';
 
-const KIND_ICON = { trip: 'airplane', home: 'home-outline', food: 'silverware-fork-knife' } as const;
+const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 export default function Home() {
   const { theme } = useTheme();
@@ -17,12 +17,16 @@ export default function Home() {
   const myName = useMyName();
   const wide = useWide();
   const [picker, setPicker] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
   const receipt = theme.family === 'receipt';
   const { net, get, pay } = netAll(state);
   const items = inbox(state);
   const marks = newMarks(state);
 
   const openItem = (i: InboxItem) => router.push(inboxHref(i) as never);
+  // Closed groups (finished, everyone square) wait at the bottom, folded away.
+  const live = state.groups.filter((g) => groupPhase(state, g.id) !== 'closed');
+  const closed = state.groups.filter((g) => groupPhase(state, g.id) === 'closed');
 
   const netBlock = (
     <View style={{ gap: 4 }}>
@@ -131,51 +135,108 @@ export default function Home() {
                 </View>
               </Card>
             )
-          ) : receipt ? (
-            state.groups.map((g) => <Ticket key={g.id} groupId={g.id} />)
           ) : (
-            <Card padded={false} style={{ gap: 0 }}>
-              {state.groups.map((g, i) => {
-                const b = balanceOf(state, g.id, ME);
-                const count = groupExpenses(state, g.id).length;
-                return (
+            <>
+              {live.length ? (
+                receipt ? (
+                  live.map((g) => <Ticket key={g.id} groupId={g.id} />)
+                ) : (
+                  <Card padded={false} style={{ gap: 0 }}>
+                    {live.map((g, i) => (
+                      <GroupRow key={g.id} group={g} first={i === 0} />
+                    ))}
+                  </Card>
+                )
+              ) : null}
+              {closed.length ? (
+                <View style={{ gap: 10, marginTop: live.length ? 8 : 0 }}>
                   <Pressable
-                    key={g.id}
-                    accessibilityRole="link"
-                    onPress={() => router.push(`/group/${g.id}`)}
-                    style={[styles.row, { padding: 16, borderTopWidth: i ? 1 : 0, borderColor: theme.c.border }]}
+                    accessibilityRole="button"
+                    aria-expanded={showClosed || live.length === 0}
+                    onPress={() => setShowClosed(!showClosed)}
+                    style={[styles.row, { gap: 6, paddingVertical: 4 }]}
                   >
-                    <View style={{ width: 48, height: 48, borderRadius: 14, backgroundColor: theme.c.chip, alignItems: 'center', justifyContent: 'center' }}>
-                      <MaterialCommunityIcons name={KIND_ICON[g.kind]} size={24} color={theme.dark ? theme.c.muted : theme.c.text} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={[styles.row, { gap: 8 }]}>
-                        <T size={16} weight="bold" numberOfLines={1} style={{ flexShrink: 1 }}>
-                          {g.name}
-                        </T>
-                        {marks.groups.has(g.id) ? <Dot /> : null}
-                      </View>
-                      <T size={13} color={theme.c.muted}>
-                        {g.members.length} people · {count} expense{count === 1 ? '' : 's'}
-                      </T>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <T size={12} color={theme.c.muted}>
-                        {b > 0n ? 'you get' : b < 0n ? 'you owe' : ''}
-                      </T>
-                      <T size={16} weight="bold" color={b > 0n ? theme.c.get : b < 0n ? theme.c.owe : theme.c.muted}>
-                        {b === 0n ? 'settled' : inr(b < 0n ? -b : b)}
-                      </T>
-                    </View>
+                    <MaterialCommunityIcons name={showClosed || live.length === 0 ? 'chevron-down' : 'chevron-right'} size={20} color={theme.c.muted} />
+                    <T size={14} weight="bold" color={theme.c.muted} mono={receipt}>
+                      {receipt ? `CLOSED (${closed.length})` : `Closed (${closed.length})`}
+                    </T>
                   </Pressable>
-                );
-              })}
-            </Card>
+                  {showClosed || live.length === 0 ? (
+                    receipt ? (
+                      closed.map((g) => <Ticket key={g.id} groupId={g.id} />)
+                    ) : (
+                      <Card padded={false} style={{ gap: 0 }}>
+                        {closed.map((g, i) => (
+                          <GroupRow key={g.id} group={g} first={i === 0} />
+                        ))}
+                      </Card>
+                    )
+                  ) : null}
+                </View>
+              ) : null}
+            </>
           )}
         </View>
       </View>
       <ThemePicker open={picker} onClose={() => setPicker(false)} />
     </Screen>
+  );
+}
+
+/** The group's first letter on a soft tile (cards themes). */
+function GroupTile({ name, muted }: { name: string; muted?: boolean }) {
+  const { theme } = useTheme();
+  return (
+    <View style={{ width: 48, height: 48, borderRadius: 14, backgroundColor: theme.c.chip, alignItems: 'center', justifyContent: 'center' }}>
+      <T size={20} weight="heavy" color={muted ? theme.c.muted : theme.c.text}>
+        {name.trim().slice(0, 1).toUpperCase() || '?'}
+      </T>
+    </View>
+  );
+}
+
+function GroupRow({ group: g, first }: { group: Group; first: boolean }) {
+  const { theme } = useTheme();
+  const { state } = useStore();
+  const b = balanceOf(state, g.id, ME);
+  const count = groupExpenses(state, g.id).length;
+  const phase = groupPhase(state, g.id);
+  const isNew = newMarks(state).groups.has(g.id);
+  const sub =
+    phase === 'closed'
+      ? `Paid${g.closedAt ? ` · closed ${fmtDay(g.closedAt)}` : ''}`
+      : `${g.members.length} people · ${count} expense${count === 1 ? '' : 's'}${phase === 'finishing' ? ' · finished, settling up' : ''}`;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      onPress={() => router.push(`/group/${g.id}`)}
+      style={(st) => [styles.row, { padding: 16, borderTopWidth: first ? 0 : 1, borderColor: theme.c.border, backgroundColor: isHovered(st) ? theme.c.tint : 'transparent' }]}
+    >
+      <GroupTile name={g.name} muted={phase === 'closed'} />
+      <View style={{ flex: 1 }}>
+        <View style={[styles.row, { gap: 8 }]}>
+          <T size={16} weight="bold" numberOfLines={1} color={phase === 'closed' ? theme.c.muted : theme.c.text} style={{ flexShrink: 1 }}>
+            {g.name}
+          </T>
+          {isNew ? <Dot /> : null}
+        </View>
+        <T size={13} color={theme.c.muted}>
+          {sub}
+        </T>
+      </View>
+      {phase === 'closed' ? (
+        <MaterialCommunityIcons name="check-circle-outline" size={22} color={theme.c.get} accessibilityLabel="Paid" />
+      ) : (
+        <View style={{ alignItems: 'flex-end' }}>
+          <T size={12} color={theme.c.muted}>
+            {b > 0n ? 'you get' : b < 0n ? 'you owe' : ''}
+          </T>
+          <T size={16} weight="bold" color={b > 0n ? theme.c.get : b < 0n ? theme.c.owe : theme.c.muted}>
+            {b === 0n ? 'settled' : inr(b < 0n ? -b : b)}
+          </T>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -187,27 +248,34 @@ function Ticket({ groupId }: { groupId: string }) {
   const b = balanceOf(state, g.id, ME);
   const count = groupExpenses(state, g.id).length;
   const isNew = newMarks(state).groups.has(g.id);
+  const phase = groupPhase(state, g.id);
   const notch = { position: 'absolute' as const, top: '50%' as const, marginTop: -9, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.c.bg };
   return (
     <Pressable accessibilityRole="link" onPress={() => router.push(`/group/${g.id}`)} style={{ flexDirection: 'row', backgroundColor: theme.c.surface, minHeight: 74 }}>
       <View style={{ flex: 1, padding: 16, gap: 2 }}>
         <View style={[styles.row, { gap: 8 }]}>
-          <T size={19} weight="heavy" numberOfLines={1} color={b === 0n && !isNew ? theme.c.muted : theme.c.text} style={{ flexShrink: 1 }}>
+          <T size={19} weight="heavy" numberOfLines={1} color={phase === 'closed' && !isNew ? theme.c.muted : theme.c.text} style={{ flexShrink: 1 }}>
             {g.name}
           </T>
           {isNew ? <Dot /> : null}
         </View>
         <T size={12} mono color={theme.c.muted}>
-          {`${g.members.length} PPL · ${count} BILL${count === 1 ? '' : 'S'}`}
+          {phase === 'closed'
+            ? `ALL PAID${g.closedAt ? ` · ${fmtDay(g.closedAt).toUpperCase()}` : ''}`
+            : `${g.members.length} PPL · ${count} BILL${count === 1 ? '' : 'S'}${phase === 'finishing' ? ' · FINISHED' : ''}`}
         </T>
       </View>
       <View style={{ width: 112, borderLeftWidth: 2, borderStyle: 'dashed', borderColor: theme.c.border, alignItems: 'center', justifyContent: 'center' }}>
-        {b === 0n ? (
+        {phase === 'closed' ? (
           <View style={{ borderWidth: 2, borderColor: theme.c.get, paddingHorizontal: 8, paddingVertical: 2, transform: [{ rotate: '-8deg' }] }}>
             <T size={14} mono weight="bold" color={theme.c.get} style={{ letterSpacing: 2 }}>
               PAID
             </T>
           </View>
+        ) : b === 0n ? (
+          <T size={13} mono weight="bold" color={theme.c.muted}>
+            SETTLED
+          </T>
         ) : (
           <>
             <T size={11} mono color={theme.c.muted}>

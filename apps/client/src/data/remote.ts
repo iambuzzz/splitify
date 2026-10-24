@@ -1,5 +1,5 @@
 import { api } from './api';
-import { type Action, type Expense, type ExpenseIcon, type Group, type Payment, type SeenMark, type SplitSpec, type State, ME, pairKey, reducer } from './model';
+import { type Action, type Expense, type ExpenseIcon, type Payment, type SeenMark, type SplitSpec, type State, ME, pairKey, reducer } from './model';
 
 /**
  * Builds the app's State from the API and turns the app's actions into API calls. The screens
@@ -28,7 +28,6 @@ export interface Remote {
 }
 
 const ICONS: ExpenseIcon[] = ['hotel', 'food', 'taxi', 'home', 'wifi', 'cart', 'other'];
-const KINDS: Group['kind'][] = ['trip', 'home', 'food'];
 
 export const emptyRemote = (): Remote => ({
   state: { members: {}, groups: [], roster: {}, expenses: [], payments: [], pairMessages: [], seen: [], nextId: 1 },
@@ -50,8 +49,9 @@ export function buildRemote(snapshots: Json[]): Remote {
     out.state.groups.push({
       id: groupId,
       name: snap.group.name,
-      kind: KINDS.includes(snap.group.kind) ? snap.group.kind : 'trip',
       members: snap.members.filter((m: Json) => m.status === 'active').map((m: Json) => id(m.id)),
+      finishedAt: snap.group.finishedAt ?? undefined,
+      closedAt: snap.group.closedAt ?? undefined,
     });
     out.state.roster[groupId] = snap.members.map((m: Json) => ({ id: id(m.id), role: m.role, joined: m.joined, active: m.status === 'active' }));
     for (const m of snap.pairMessages ?? []) {
@@ -100,6 +100,8 @@ function toExpense(d: Json, id: (m: string) => string): Expense | null {
       at: v.createdAt,
     })),
     deleted: d.status === 'deleted',
+    deletedBy: d.deletedBy ? id(d.deletedBy) : undefined,
+    owners: (d.ownerIds ?? [d.createdBy]).map(id),
     disputes: d.disputes.map((x: Json) => ({ by: id(x.memberId), reason: x.reason })),
     messages: d.messages
       .filter((m: Json) => !m.deleted)
@@ -129,7 +131,8 @@ function toPayment(p: Json, groupId: string, id: (m: string) => string): Payment
     to: id(p.to),
     amount: BigInt(p.amount),
     via: p.method === 'cash' ? 'cash' : 'upi',
-    status: p.status === 'confirmed' ? 'confirmed' : p.status === 'awaiting_confirmation' ? 'awaiting' : 'declined',
+    status: p.status === 'confirmed' || p.status === 'voided' ? p.status : p.status === 'awaiting_confirmation' ? 'awaiting' : 'declined',
+    by: id(p.recordedBy),
     at: p.createdAt,
   };
 }
@@ -184,7 +187,17 @@ export async function perform(a: Action, r: Remote): Promise<void> {
 
   switch (a.type) {
     case 'add_group':
-      await api.send('POST', '/groups', { id: a.id, name: a.name, kind: a.kind, placeholders: a.memberNames });
+      await api.send('POST', '/groups', { id: a.id, name: a.name, placeholders: a.memberNames });
+      return;
+    case 'rename_group':
+      await api.send('PATCH', `/groups/${a.groupId}`, { name: a.name });
+      return;
+    case 'finish_group':
+    case 'reopen_group':
+      await api.send('POST', `/groups/${a.groupId}/${a.type === 'finish_group' ? 'finish' : 'reopen'}`);
+      return;
+    case 'make_owner':
+      await api.send('POST', `/groups/${a.groupId}/members/${real(a.groupId, a.memberId)}/make-owner`);
       return;
     case 'add_expense':
       await api.send('POST', `/groups/${a.groupId}/expenses`, { id: a.id, ...content(a.groupId, a, undefined, a.icon) });
@@ -233,6 +246,9 @@ export async function perform(a: Action, r: Remote): Promise<void> {
     case 'remove_member':
       await api.send('POST', `/groups/${a.groupId}/members/${real(a.groupId, a.memberId)}/remove`, { acknowledgeBalance: a.acknowledgeBalance });
       return;
+    case 'leave_group':
+      await api.send('POST', `/groups/${a.groupId}/leave`, { acknowledgeBalance: a.acknowledgeBalance });
+      return;
     case 'set_role':
       await api.send('PATCH', `/groups/${a.groupId}/members/${real(a.groupId, a.memberId)}`, { role: a.role });
       return;
@@ -248,6 +264,7 @@ export async function perform(a: Action, r: Remote): Promise<void> {
       return;
     case 'record_payment':
       await api.send('POST', `/groups/${a.groupId}/settlements`, {
+        id: a.paymentId,
         from: real(a.groupId, a.from),
         to: real(a.groupId, a.to),
         amount: a.amount.toString(),
@@ -265,6 +282,12 @@ export async function perform(a: Action, r: Remote): Promise<void> {
       return;
     case 'decline_payment':
       await api.send('POST', `/settlements/${a.id}/decline`, { reason: 'Not received yet' });
+      return;
+    case 'void_payment':
+      await api.send('POST', `/settlements/${a.id}/void`, { reason: 'Marked by mistake' });
+      return;
+    case 'withdraw_payment':
+      await api.send('POST', `/settlements/${a.id}/withdraw`);
       return;
   }
 }

@@ -46,3 +46,24 @@ export function Missing({ what = 'group', back = '/' }: { what?: 'group' | 'expe
     </Screen>
   );
 }
+
+/** Stands in for adding or importing expenses once the group is finished (or closed). */
+export function Finished({ groupId, closed }: { groupId: string; closed: boolean }) {
+  const { theme } = useTheme();
+  return (
+    <Screen maxWidth={560}>
+      <Header back={`/group/${groupId}`} />
+      <View style={{ alignItems: 'center', gap: 12, paddingVertical: 56 }}>
+        <T size={20} weight="heavy" style={{ textAlign: 'center' }}>
+          {closed ? 'This group is closed' : 'This group is finished'}
+        </T>
+        <T size={15} color={theme.c.muted} style={{ textAlign: 'center', maxWidth: 360 }}>
+          {closed ? 'Everyone is square, so nothing can change now.' : 'Only payments now: expenses can’t be added or changed.'} An owner or admin can reopen it.
+        </T>
+        <View style={{ marginTop: 8 }}>
+          <Button title="Back to the group" size="md" variant="secondary" onPress={() => router.replace(`/group/${groupId}` as never)} />
+        </View>
+      </View>
+    </Screen>
+  );
+}

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Router } from '../app';
-import { activeMember, isAdmin, recordEvent } from '../context';
+import { activeMember, isAdmin, recordEvent, requireOpen } from '../context';
 import type { Db, Tx } from '../db';
 import { ApiError, notFound } from '../errors';
 import { type ReceiptStore, receiptKey, sniffType } from '../receipts-store';
@@ -92,6 +92,7 @@ export function receiptFileRoutes(scope: FastifyInstance, db: Db, store: Receipt
       const result = await db.asUser(req.userId, async (tx) => {
         const e = await expenseFor(tx, expenseId);
         const m = await activeMember(tx, e.group_id);
+        await requireOpen(tx, m);
         const count = await tx.query<{ n: number }>('select count(*)::int as n from app.receipts where expense_id = $1 and deleted_at is null', [expenseId]);
         if (count.rows[0]!.n >= MAX_PER_EXPENSE) throw new ApiError(422, 'too_many_receipts', `An expense can have up to ${MAX_PER_EXPENSE} photos and files`);
         // The same file on another expense in this group is a hint that it may be a duplicate.
@@ -152,6 +153,7 @@ export function receiptRoutes(r: Router) {
     if (!row) throw notFound('Receipt not found');
     const e = await expenseFor(tx, row.expense_id);
     const m = await activeMember(tx, e.group_id);
+    await requireOpen(tx, m);
     const owner = e.created_by === m.memberId || e.payers.some((p) => p.memberId === m.memberId);
     if (row.uploaded_by !== m.memberId && !owner && !isAdmin(m)) {
       throw new ApiError(403, 'forbidden', 'Only whoever added it, or the expense’s owner, can remove this');

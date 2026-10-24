@@ -4,12 +4,12 @@ import { Platform, Pressable, View } from 'react-native';
 import { ApiError } from '../../../src/data/api';
 import { type ImportItem, type SplitwiseFile, guessPeople, importId, parseSplitwise, planImport } from '../../../src/data/csv';
 import { uuidv7 } from '../../../src/data/ids';
-import { ME, inr } from '../../../src/data/model';
+import { ME, groupPhase, inr } from '../../../src/data/model';
 import { useStore } from '../../../src/data/StoreProvider';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { pickFiles } from '../../../src/ui/files';
 import { Header } from '../../../src/ui/Header';
-import { Missing } from '../../../src/ui/Missing';
+import { Finished, Missing } from '../../../src/ui/Missing';
 import { Button, Card, Divider, Label, Note, Screen, T, styles } from '../../../src/ui/kit';
 
 const NEW = 'new';
@@ -39,6 +39,7 @@ export default function ImportSplitwise() {
   const items = useMemo(() => (file ? planImport(file, memberOf) : []), [file, memberOf]);
 
   if (!group) return <Missing />;
+  if (groupPhase(state, group.id) !== 'open') return <Finished groupId={group.id} closed={groupPhase(state, group.id) === 'closed'} />;
   const name = (m: string) => (m.startsWith('new:') ? `${m.slice(4)} (new)` : m === ME ? 'You' : state.members[m]?.name ?? m);
 
   const choose = async () => {

@@ -87,7 +87,6 @@ export const updateGroup = z
     /** Review mode: expenses at or above this amount need OKs. Null turns review mode off. */
     reviewThreshold: minor.nullable().optional(),
     reviewRequired: z.int().min(1).max(10).optional(),
-    archived: z.boolean().optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
 

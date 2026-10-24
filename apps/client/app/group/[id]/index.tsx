@@ -9,9 +9,11 @@ import {
   balanceOf,
   current,
   groupExpenses,
+  groupPhase,
   inbox,
   inboxHref,
   inr,
+  isAdmin,
   myEffect,
   myTransfers,
   newMarks,
@@ -47,6 +49,10 @@ export default function GroupScreen() {
   useEffect(() => {
     if (wanted) setSelected(wanted);
   }, [wanted]);
+  // Opened before the group had loaded: pick the first expense once it's there.
+  useEffect(() => {
+    if (!selected && firstNeedy) setSelected(firstNeedy.id);
+  }, [selected, firstNeedy]);
   if (!group) return <Missing />;
 
   const receipt = theme.family === 'receipt';
@@ -65,6 +71,43 @@ export default function GroupScreen() {
   const marks = newMarks(state);
   const settleNew = marks.settle.has(group.id);
   const open = (e: Expense) => (wide ? setSelected(e.id) : router.push(`/group/${group.id}/expense/${e.id}`));
+  const phase = groupPhase(state, group.id);
+  const editable = phase === 'open';
+  const admin = isAdmin(state, group.id);
+  const fmtWhen = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '');
+
+  // Finished: only payments now. Closed: everyone square, read-only. Admins can reopen from here.
+  const phaseBlock =
+    phase === 'open' ? null : (
+      <Card style={{ borderWidth: receipt ? 0 : 1.5, borderColor: phase === 'closed' ? theme.c.get : theme.c.attnBorder, backgroundColor: phase === 'closed' ? theme.c.surface : theme.c.attnBg }}>
+        <View style={[styles.row, { gap: 12 }]}>
+          {phase === 'closed' ? (
+            <View style={{ borderWidth: 2, borderColor: theme.c.get, borderRadius: receipt ? 0 : 8, paddingHorizontal: 8, paddingVertical: 2, transform: [{ rotate: '-6deg' }] }}>
+              <T size={15} mono weight="bold" color={theme.c.get} style={{ letterSpacing: 2 }}>
+                PAID
+              </T>
+            </View>
+          ) : (
+            <Feather name="flag" size={20} color={theme.c.attnText} />
+          )}
+          <View style={{ flex: 1, gap: 2 }}>
+            <T size={15} weight="bold" color={phase === 'closed' ? theme.c.text : theme.c.attnText}>
+              {phase === 'closed' ? `Closed${group.closedAt ? ` on ${fmtWhen(group.closedAt)}` : ''}` : 'Finished: settling up'}
+            </T>
+            <T size={13} color={phase === 'closed' ? theme.c.muted : theme.c.attnText}>
+              {phase === 'closed'
+                ? 'Everyone is square. This group is read-only now.'
+                : `No new expenses. ${transfersOf(state, group.id).length || 'No'} payment${transfersOf(state, group.id).length === 1 ? '' : 's'} left; it closes when everyone is square.`}
+            </T>
+          </View>
+        </View>
+        {admin ? (
+          <View style={{ alignSelf: 'flex-start' }}>
+            <Button title="Reopen" icon="rotate-ccw" size="sm" variant="secondary" onPress={() => router.push(`/group/${group.id}/finish`)} />
+          </View>
+        ) : null}
+      </Card>
+    );
 
 
   const balanceBlock = (
@@ -132,7 +175,7 @@ export default function GroupScreen() {
       <T size={14} color={theme.c.muted} style={{ textAlign: 'center', maxWidth: 320 }}>
         Add what you paid, or invite friends so they can add theirs. Balances show up here.
       </T>
-      <Button title="Invite friends" icon="user-plus" size="md" variant="secondary" onPress={invite} />
+      {editable ? <Button title="Invite friends" icon="user-plus" size="md" variant="secondary" onPress={invite} /> : null}
     </Card>
   );
 
@@ -288,8 +331,8 @@ export default function GroupScreen() {
         title={receipt ? undefined : group.name}
         right={
           <View style={{ flexDirection: 'row' }}>
-            <IconButton icon="user-plus" label="Invite friends" onPress={invite} />
-            <IconButton icon="more-horizontal" label="More: share, spreadsheet, import, members" onPress={openMenu} />
+            {editable ? <IconButton icon="user-plus" label="Invite friends" onPress={invite} /> : null}
+            <IconButton icon="more-horizontal" label="More: share, spreadsheet, members, settings" onPress={openMenu} />
           </View>
         }
       />
@@ -309,7 +352,8 @@ export default function GroupScreen() {
       ) : null}
     </View>
   );
-  const footer = (
+  // Finished: the balance card already has Settle up, and there's nothing to add.
+  const footer = !editable ? undefined : (
     <View style={[styles.row, { gap: 10 }]}>
       {receipt && anyoneOwes ? (
         <View style={{ flex: 1 }}>
@@ -332,11 +376,16 @@ export default function GroupScreen() {
               {group.name}
             </T>
             <View style={[styles.row, { gap: 10 }]}>
-              <IconButton icon="more-horizontal" label="More: share, spreadsheet, import, members" onPress={openMenu} />
-              <Button title="Invite" size="md" variant="secondary" icon="user-plus" onPress={invite} />
-              <Button title={receipt ? '+ Add a bill' : 'Add expense'} size="md" icon={receipt ? undefined : 'plus'} onPress={() => router.push(`/group/${group.id}/add`)} />
+              <IconButton icon="more-horizontal" label="More: share, spreadsheet, members, settings" onPress={openMenu} />
+              {editable ? (
+                <>
+                  <Button title="Invite" size="md" variant="secondary" icon="user-plus" onPress={invite} />
+                  <Button title={receipt ? '+ Add a bill' : 'Add expense'} size="md" icon={receipt ? undefined : 'plus'} onPress={() => router.push(`/group/${group.id}/add`)} />
+                </>
+              ) : null}
             </View>
           </View>
+          {phaseBlock}
           {receipt || !showBalance ? null : <Card>{balanceBlock}</Card>}
           {receipt && expenses.length === 0 && showBalance ? <Card>{balanceBlock}</Card> : null}
           {needsBlock}
@@ -367,6 +416,7 @@ export default function GroupScreen() {
   return (
     <Screen maxWidth={640} footer={footer}>
       {header}
+      {receipt ? null : phaseBlock}
       {receipt ? (
         <T size={30} weight="heavy" style={{ letterSpacing: -1, marginTop: -6 }}>
           {group.name}
@@ -374,6 +424,7 @@ export default function GroupScreen() {
       ) : showBalance ? (
         <Card>{balanceBlock}</Card>
       ) : null}
+      {receipt ? phaseBlock : null}
       {receipt && expenses.length === 0 && showBalance ? <Card>{balanceBlock}</Card> : null}
       <PeopleStrip groupId={group.id} />
       {needsBlock}
