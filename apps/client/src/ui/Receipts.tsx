@@ -1,7 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type Expense, ME, type Receipt, isAdmin } from '../data/model';
 import { type DuplicateOf, type ReceiptFile, useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
@@ -65,9 +66,14 @@ function Viewer({ r, canRemove, onRemove, onClose, name }: { r: Receipt; canRemo
   const pdf = r.contentType === 'application/pdf';
   const { url, failed } = useReceiptUrl(r);
   const [confirm, setConfirm] = useState(false);
+  const insets = useSafeAreaInsets();
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center', padding: wide ? 32 : 12 }}>
+      <Pressable
+        accessibilityLabel="Close"
+        onPress={onClose}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center', padding: wide ? 32 : 12, paddingTop: wide ? 32 : insets.top + 12, paddingBottom: wide ? 32 : insets.bottom + 12 }}
+      >
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 900, flex: 1, gap: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <T size={14} color="#FFFFFF" style={{ flex: 1 }}>
@@ -85,7 +91,7 @@ function Viewer({ r, canRemove, onRemove, onClose, name }: { r: Receipt; canRemo
             ) : pdf ? (
               <View style={{ alignItems: 'center', gap: 14 }}>
                 <Feather name="file-text" size={56} color="#FFFFFF" />
-                <Button title="Open the PDF" icon="external-link" size="md" onPress={() => window.open(url, '_blank', 'noopener')} />
+                <Button title="Open the PDF" icon="external-link" size="md" onPress={() => (Platform.OS === 'web' ? window.open(url, '_blank', 'noopener') : Linking.openURL(url).catch(() => {}))} />
               </View>
             ) : (
               <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} resizeMode="contain" accessibilityLabel="Bill photo" />

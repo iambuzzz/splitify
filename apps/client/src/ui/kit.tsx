@@ -25,6 +25,11 @@ export function useWide() {
   return useWindowDimensions().width >= WIDE;
 }
 
+/** Room under a bottom sheet on phones: its own padding plus the system's back/home/recent bar. */
+export function useSheetBottom(padding: number) {
+  return padding + useSafeAreaInsets().bottom;
+}
+
 /** react-native-web reports hover in the Pressable state; native never does. */
 export const isHovered = (state: PressableStateCallbackType) => !!(state as { hovered?: boolean }).hovered;
 
@@ -125,7 +130,7 @@ export function Screen({
   const pinned = !!footer && !wide;
   const inner = (
     // Laptops line the first row up with the sidebar's logo; phones sit just under the status bar.
-    <View style={{ width: '100%', maxWidth, alignSelf: 'center', paddingHorizontal: wide ? 32 : 20, paddingTop: wide ? 32 : insets.top + 12, paddingBottom: pinned ? 120 : 48, gap: 16 }}>
+    <View style={{ width: '100%', maxWidth, alignSelf: 'center', paddingHorizontal: wide ? 32 : 20, paddingTop: wide ? 32 : insets.top + 12, paddingBottom: (pinned ? 120 : 48) + insets.bottom, gap: 16 }}>
       {children}
       {footer && !pinned ? <View style={{ marginTop: 8 }}>{footer}</View> : null}
     </View>

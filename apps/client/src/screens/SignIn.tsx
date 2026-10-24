@@ -185,9 +185,12 @@ export function SignIn() {
             {codeField}
           </View>
           <Problem text={problem} />
-          <T size={14} color={theme.c.muted}>
-            Or tap “Sign in” in the email. The button works in any browser.
-          </T>
+          {/* On phones the email's button signs in the browser, not this app: the code is the way in. */}
+          {Platform.OS === 'web' ? (
+            <T size={14} color={theme.c.muted}>
+              Or tap “Sign in” in the email. The button works in any browser.
+            </T>
+          ) : null}
           {inbox ? <Button title={`Open ${inbox.name}`} icon="mail" size="md" variant="secondary" onPress={() => window.open(inbox.url, '_blank', 'noopener')} /> : null}
           {again}
         </Screen>

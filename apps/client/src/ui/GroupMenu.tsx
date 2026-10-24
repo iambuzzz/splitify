@@ -9,7 +9,7 @@ import { groupSummaryText } from '../data/share';
 import { appUrl, useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { saveTextFile } from './files';
-import { T, isHovered, useWide } from './kit';
+import { T, isHovered, useSheetBottom, useWide } from './kit';
 import { ShareSheet } from './ShareSheet';
 
 type Icon = ComponentProps<typeof Feather>['name'];
@@ -19,6 +19,7 @@ export function useGroupMenu(group: Group | undefined) {
   const { theme } = useTheme();
   const { state } = useStore();
   const wide = useWide();
+  const bottom = useSheetBottom(28);
   const [open, setOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,7 +96,7 @@ export function useGroupMenu(group: Group | undefined) {
         <Pressable accessibilityLabel="Close menu" onPress={close} style={{ flex: 1, backgroundColor: theme.c.overlay, justifyContent: wide ? 'center' : 'flex-end', alignItems: 'center', padding: wide ? 24 : 0 }}>
           <Pressable
             onPress={() => {}}
-            style={{ width: '100%', maxWidth: wide ? 420 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingVertical: 12, paddingBottom: wide ? 12 : 28 }}
+            style={{ width: '100%', maxWidth: wide ? 420 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingVertical: 12, paddingBottom: wide ? 12 : bottom }}
           >
             <T size={13} weight="bold" color={theme.c.muted} style={{ paddingHorizontal: 20, paddingVertical: 8 }}>
               {group.name.toUpperCase()}

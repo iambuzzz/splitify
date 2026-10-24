@@ -22,12 +22,14 @@ import {
 } from '@expo-google-fonts/space-grotesk';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
-import { type Href, Stack, router } from 'expo-router';
+import { useLinkingURL } from 'expo-linking';
+import { type Href, Stack, router, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { takePendingInvite, takeReturnPath } from '../src/data/invite';
+import { inviteInLink } from '../src/data/openedLink';
 import { StoreProvider, useStore } from '../src/data/StoreProvider';
 import { SignIn } from '../src/screens/SignIn';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
@@ -107,6 +109,8 @@ function Shell() {
   const { account } = useStore();
   const wide = useWide();
   const ready = account?.status === 'ready';
+  const opened = useLinkingURL();
+  const pathname = usePathname();
   // Browser chrome and anything outside the app take the theme's background, never plain white.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -122,11 +126,11 @@ function Shell() {
   // Signed in from an invite link: continue to joining that group.
   useEffect(() => {
     if (!ready) return;
-    const t = takePendingInvite();
+    const t = Platform.OS === 'web' ? takePendingInvite() : inviteInLink(opened);
     const back = takeReturnPath();
-    if (t && window.location.pathname !== '/join') router.replace({ pathname: '/join', params: { t } });
+    if (t && pathname !== '/join') router.replace({ pathname: '/join', params: { t } });
     // Signed in from another deep link (e.g. a settle-up reminder): back to that page.
-    else if (back && window.location.pathname !== back) router.replace(back as Href);
+    else if (back && pathname !== back) router.replace(back as Href);
   }, [ready]);
   if (account && !ready) {
     return (
@@ -151,6 +155,7 @@ function Shell() {
 /** A change the API refused (or a lost connection): said in words, then hidden after a while. */
 function ErrorBanner() {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const { error, clearError, sync } = useStore();
   useEffect(() => {
     if (!error) return;
@@ -172,7 +177,7 @@ function ErrorBanner() {
     );
   }
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 96, alignItems: 'center', paddingHorizontal: 16 }}>
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 96 + insets.bottom, alignItems: 'center', paddingHorizontal: 16 }}>
       <Pressable
         accessibilityRole="alert"
         accessibilityLabel={`${error}. Tap to hide.`}

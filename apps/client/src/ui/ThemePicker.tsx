@@ -3,19 +3,20 @@ import { Modal, Pressable, View } from 'react-native';
 import { useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { THEMES, THEME_ORDER } from '../theme/themes';
-import { Button, T, useWide } from './kit';
+import { Button, T, useSheetBottom, useWide } from './kit';
 
 /** Bottom sheet (centred dialog on wide screens) for switching themes, and signing out. */
 export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const { account } = useStore();
   const wide = useWide();
+  const bottom = useSheetBottom(32);
   return (
     <Modal transparent visible={open} animationType="fade" onRequestClose={onClose}>
       <Pressable accessibilityLabel="Close theme picker" onPress={onClose} style={{ flex: 1, backgroundColor: theme.c.overlay, justifyContent: wide ? 'center' : 'flex-end', alignItems: 'center', padding: wide ? 24 : 0 }}>
         <Pressable
           onPress={() => {}}
-          style={{ width: '100%', maxWidth: wide ? 440 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: wide ? 20 : 32, gap: 12 }}
+          style={{ width: '100%', maxWidth: wide ? 440 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: wide ? 20 : bottom, gap: 12 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <T size={20} weight="heavy">

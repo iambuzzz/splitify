@@ -2,7 +2,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { Linking, Modal, Platform, Pressable, Share, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import { Button, T, useWide } from './kit';
+import { Button, T, useSheetBottom, useWide } from './kit';
 
 type Nav = { share?: (data: { text?: string; title?: string }) => Promise<void>; clipboard?: { writeText(s: string): Promise<void> } };
 const nav = () => (globalThis as { navigator?: Nav }).navigator;
@@ -14,6 +14,7 @@ const nav = () => (globalThis as { navigator?: Nav }).navigator;
 export function ShareSheet({ open, title, buildText, onClose }: { open: boolean; title: string; buildText: (amounts: boolean) => string; onClose: () => void }) {
   const { theme } = useTheme();
   const wide = useWide();
+  const bottom = useSheetBottom(32);
   const [amounts, setAmounts] = useState(false);
   const [copied, setCopied] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export function ShareSheet({ open, title, buildText, onClose }: { open: boolean;
       <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, backgroundColor: theme.c.overlay, justifyContent: wide ? 'center' : 'flex-end', alignItems: 'center', padding: wide ? 24 : 0 }}>
         <Pressable
           onPress={() => {}}
-          style={{ width: '100%', maxWidth: wide ? 460 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: wide ? 20 : 32, gap: 14 }}
+          style={{ width: '100%', maxWidth: wide ? 460 : 520, backgroundColor: theme.c.surface, borderRadius: wide ? 24 : 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: wide ? 20 : bottom, gap: 14 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <T size={20} weight="heavy" numberOfLines={1} style={{ flex: 1 }}>

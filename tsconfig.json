@@ -24,6 +24,7 @@
   "exclude": [
     "tests/db",
     "tests/api",
-    "tests/pg"
+    "tests/pg",
+    "tests/client-native.test.ts"
   ]
 }

@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.iambuzzdev.splitify",
+      "sha256_cert_fingerprints": ["AF:FE:BF:AC:BC:CE:04:9E:B0:30:C5:67:44:F1:E2:A0:AF:53:72:6C:8F:11:48:B0:78:50:57:25:2A:28:54:70"]
+    }
+  }
+]

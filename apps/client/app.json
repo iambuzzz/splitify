@@ -22,7 +22,18 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "in.iambuzzdev.splitify"
+      "package": "in.iambuzzdev.splitify",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "splitify.iambuzzdev.in", "pathPrefix": "/join" },
+            { "scheme": "https", "host": "splitify.iambuzzdev.in", "pathPrefix": "/group" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",

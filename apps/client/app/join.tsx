@@ -1,3 +1,4 @@
+import { useLinkingURL } from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
@@ -7,14 +8,16 @@ import { useTheme } from '../src/theme/ThemeProvider';
 import { Header } from '../src/ui/Header';
 import { Button, Chip, Field, Label, Screen, T, styles } from '../src/ui/kit';
 
-/** The token is in the link's #fragment on the web (never sent to any server), or ?t= in app links. */
+/**
+ * The token is in the link's #fragment (never sent to any server), or ?t= in app links. On phones an
+ * invite link opens the app itself, and the fragment is only in the link it was opened with.
+ */
 function useInviteToken(): string | undefined {
   const { t } = useLocalSearchParams<{ t?: string }>();
+  const opened = useLinkingURL();
   if (t) return t;
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return new URLSearchParams(window.location.hash.slice(1)).get('t') ?? undefined;
-  }
-  return undefined;
+  const hash = Platform.OS === 'web' ? (typeof window !== 'undefined' ? window.location.hash : '') : (opened?.split('#')[1] ?? '');
+  return new URLSearchParams(hash.replace(/^#/, '')).get('t') ?? undefined;
 }
 
 export default function Join() {
