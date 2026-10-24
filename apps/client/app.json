@@ -2,6 +2,7 @@
   "expo": {
     "name": "Splitify",
     "slug": "splitify",
+    "owner": "splitify",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,8 +22,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "in.iambuzzdev.splitify",
-      "versionCode": 1
+      "package": "in.iambuzzdev.splitify"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -49,6 +49,11 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8bbd444f-eb1a-4f6d-bfcf-ed80e71cedda"
+      }
     }
   }
 }
