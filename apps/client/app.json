@@ -3,7 +3,7 @@
     "name": "Splitify",
     "slug": "splitify",
     "owner": "splitify",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -50,11 +50,13 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 160,
           "resizeMode": "contain",
-          "backgroundColor": "#F4F6F4",
-          "dark": {
-            "image": "./assets/splash-icon-dark.png",
-            "backgroundColor": "#050506"
-          }
+          "backgroundColor": "#050506"
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
         }
       ],
       [

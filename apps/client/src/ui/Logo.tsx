@@ -25,9 +25,12 @@ export function Logo({ size = 22 }: { size?: number }) {
   const { theme } = useTheme();
   if (theme.family === 'receipt') {
     return (
-      <T size={size + 8} weight="heavy" style={{ letterSpacing: -1 }}>
-        Splitify<T size={size + 8} weight="heavy" color={theme.c.get}>.</T>
-      </T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Mark size={size + 12} />
+        <T size={size + 8} weight="heavy" style={{ letterSpacing: -1 }}>
+          Splitify<T size={size + 8} weight="heavy" color={theme.c.get}>.</T>
+        </T>
+      </View>
     );
   }
   return (

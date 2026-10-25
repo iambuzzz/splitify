@@ -23,6 +23,7 @@ import {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { useLinkingURL } from 'expo-linking';
+import { NavigationBar } from 'expo-navigation-bar';
 import { type Href, Stack, router, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -135,20 +136,34 @@ function Shell() {
   if (account && !ready) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.c.bg }}>
-        <StatusBar style={theme.dark ? 'light' : 'dark'} />
+        <SystemBars />
         <SignIn />
       </View>
     );
   }
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: theme.c.bg }}>
-      <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <SystemBars />
       {wide ? <Sidebar /> : null}
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.c.bg }, animation: wide ? 'none' : 'default' }} />
       </View>
       <ErrorBanner />
     </View>
+  );
+}
+
+/**
+ * The phone's own bars wear the theme: light icons on dark themes, dark on light ones. The app draws
+ * under both, so the theme's background shows through (app.json turns off Android's light scrim).
+ */
+function SystemBars() {
+  const { theme } = useTheme();
+  return (
+    <>
+      <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <NavigationBar style={theme.dark ? 'dark' : 'light'} />
+    </>
   );
 }
 
