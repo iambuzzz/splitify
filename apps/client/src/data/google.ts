@@ -45,7 +45,7 @@ export type GoogleReturn = { idToken: string; nonce: string } | { error: 'cancel
 export function takeGoogleReturn(): GoogleReturn | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined' || window.location.pathname !== GOOGLE_RETURN_PATH) return null;
   const p = new URLSearchParams(window.location.hash.slice(1));
-  window.history.replaceState(null, '', '/');
+  window.history.replaceState(null, '', '/groups');
   let saved: { nonce?: string; state?: string } = {};
   try {
     saved = JSON.parse(sessionStorage.getItem(KEY) ?? '{}');

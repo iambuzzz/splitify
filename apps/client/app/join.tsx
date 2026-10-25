@@ -56,7 +56,7 @@ export default function Join() {
       const groupId = await account.join(token, claim, claim ? undefined : newName.trim());
       takePendingInvite(); // used up
       // Keep the token out of the address bar and browser history from here on.
-      if (Platform.OS === 'web') window.history.replaceState(null, '', '/');
+      if (Platform.OS === 'web') window.history.replaceState(null, '', '/groups');
       router.replace(`/group/${groupId}`);
     } catch (err) {
       setJoinProblem(err instanceof Error ? err.message : 'Could not join. Try again');
@@ -89,7 +89,7 @@ export default function Join() {
           <T size={15} color={theme.c.owe}>
             {problem}
           </T>
-          <Button title="Go to my groups" variant="secondary" size="md" onPress={() => router.replace('/')} />
+          <Button title="Go to my groups" variant="secondary" size="md" onPress={() => router.replace('/groups')} />
         </View>
       ) : null}
       {token && !invite && !problem ? <ActivityIndicator color={theme.c.primary} /> : null}

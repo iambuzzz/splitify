@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import { IconButton, T } from './kit';
 
-export function Header({ title, back = '/', right }: { title?: string; back?: string | false; right?: ReactNode }) {
+export function Header({ title, back = '/groups', right }: { title?: string; back?: string | false; right?: ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: -10, minHeight: 44 }}>
       {back !== false ? (

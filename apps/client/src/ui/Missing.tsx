@@ -9,7 +9,7 @@ import { Button, Screen, T } from './kit';
  * Stands in for a page whose group (or expense, or person) isn't in the app's data: still loading,
  * the server can't be reached, or it really isn't there (deleted, or I was removed).
  */
-export function Missing({ what = 'group', back = '/' }: { what?: 'group' | 'expense' | 'person'; back?: string }) {
+export function Missing({ what = 'group', back = '/groups' }: { what?: 'group' | 'expense' | 'person'; back?: string }) {
   const { theme } = useTheme();
   const { sync } = useStore();
   const waiting = sync !== 'ready';
@@ -38,7 +38,7 @@ export function Missing({ what = 'group', back = '/' }: { what?: 'group' | 'expe
               {gone[1]}
             </T>
             <View style={{ marginTop: 8 }}>
-              <Button title="Go home" size="md" variant="secondary" onPress={() => router.replace('/')} />
+              <Button title="Go home" size="md" variant="secondary" onPress={() => router.replace('/groups')} />
             </View>
           </>
         )}

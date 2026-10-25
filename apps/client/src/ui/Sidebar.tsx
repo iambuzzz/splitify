@@ -53,7 +53,7 @@ export function Sidebar() {
           {inr(net < 0n ? -net : net)}
         </BigAmount>
       </View>
-      <Pressable accessibilityRole="link" onPress={() => router.navigate('/')} style={item(path === '/')}>
+      <Pressable accessibilityRole="link" onPress={() => router.navigate('/groups')} style={item(path === '/groups')}>
         <T size={15} weight="bold">
           Home
         </T>

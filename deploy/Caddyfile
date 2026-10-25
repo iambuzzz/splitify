@@ -10,13 +10,36 @@ splitify.iambuzzdev.in {
 		Referrer-Policy strict-origin-when-cross-origin
 	}
 	# Built scripts have a content hash in their names, so browsers may keep them for good;
-	# everything else (index.html above all) is checked again on each visit.
+	# everything else (index.html and the landing page above all) is checked again on each visit.
 	@hashed path /_expo/static/*
 	header @hashed Cache-Control "public, max-age=31536000, immutable"
 	header ?Cache-Control "no-cache"
-	# One-page app: every path (/join, /auth/callback, /group/…) loads index.html.
-	try_files {path} /index.html
-	file_server
+
+	# The Android app files, uploaded by deploy/push-apk.sh. They live outside the web build,
+	# which every deploy replaces.
+	handle /download/* {
+		root * /srv/splitify/downloads
+		uri strip_prefix /download
+		@apk path *.apk
+		header @apk Content-Type application/vnd.android.package-archive
+		header @apk Content-Disposition attachment
+		file_server
+	}
+
+	handle {
+		# The landing page at / (no app code loaded). Sign-in returns (/?code=…, /?error=…) still reach the app.
+		@landing {
+			path /
+			not query code=*
+			not query error=*
+		}
+		rewrite @landing /landing.html
+		@manifest path /manifest.webmanifest
+		header @manifest Content-Type application/manifest+json
+		# One-page app: every other path (/groups, /join, /auth/callback, /group/…) loads index.html.
+		try_files {path} /index.html
+		file_server
+	}
 }
 
 api.splitify.iambuzzdev.in {

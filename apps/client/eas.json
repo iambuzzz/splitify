@@ -9,6 +9,16 @@
       "distribution": "internal",
       "android": { "buildType": "apk" }
     },
+    "website-64bit": {
+      "extends": "preview",
+      "autoIncrement": true,
+      "env": { "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a", "EXPO_PUBLIC_APK_BITS": "64" }
+    },
+    "website-32bit": {
+      "extends": "preview",
+      "autoIncrement": true,
+      "env": { "ORG_GRADLE_PROJECT_reactNativeArchitectures": "armeabi-v7a", "EXPO_PUBLIC_APK_BITS": "32" }
+    },
     "production": {
       "environment": "production",
       "autoIncrement": true,

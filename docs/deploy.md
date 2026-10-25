@@ -4,7 +4,8 @@ The web app and the API both run on one AWS EC2 server. Set up 2026-10-23.
 
 | What | Where |
 |---|---|
-| Web app | https://splitify.iambuzzdev.in (static files at `/srv/splitify/web`, served by Caddy) |
+| Web app | https://splitify.iambuzzdev.in (static files at `/srv/splitify/web`, served by Caddy). The landing page is at `/`, the app's home at `/groups` |
+| Android app files | https://splitify.iambuzzdev.in/download/ (`/srv/splitify/downloads`, uploaded by `deploy/push-apk.sh`, kept apart from the web build) |
 | API | https://api.splitify.iambuzzdev.in (Caddy → `127.0.0.1:3001`, systemd service `splitify-api`) |
 | Server | EC2 `t3.micro`, ap-south-1 (Mumbai, same region as Supabase), Ubuntu 26.04 LTS, Elastic IP `13.203.57.144` |
 | DNS | Cloudflare zone `iambuzzdev.in`: A records `splitify` and `api.splitify` → the Elastic IP, **DNS only** (Caddy holds the Let's Encrypt certificates; Cloudflare's free certificate does not cover two-level subdomains) |
@@ -15,13 +16,26 @@ The web app and the API both run on one AWS EC2 server. Set up 2026-10-23.
 ```
 deploy/deploy.sh
 ```
-It bundles the API into one file with esbuild, builds the web app with `EXPO_PUBLIC_API_URL` set to the live API, copies both with rsync, installs the Caddyfile and service unit, restarts the API and waits for `/health`.
+It bundles the API into one file with esbuild, builds the web app with `EXPO_PUBLIC_API_URL` set to the live API, adds the landing page (`apps/landing/index.html` → `landing.html`, with the app's scripts prefetched once it has loaded), copies both with rsync, installs the Caddyfile and service unit, restarts the API and waits for `/health`.
 
 After changing a key in `.env.local` (Resend, Supabase, database): `deploy/push-env.sh`. It rebuilds `/etc/splitify/api.env` (mode 640, root:splitify) from `.env.local`, replacing the server-only settings (`HOST`, `PORT`, `TRUST_PROXY=1`, `CORS_ORIGINS`, `APP_URL`, `DATABASE_CA_CERT`). Values go over SSH and are never printed. (It writes with `cat` and `mv`, not `install /dev/stdin`: Ubuntu 26.04's Rust coreutils `install` fails on that when the file already exists.) Then restart: `ssh … sudo systemctl restart splitify-api`.
 
+## Ship a new Android app
+1. Bump `expo.version` in `apps/client/app.json` (phones on an older version then see "Splitify x.y is out").
+2. Build both files on EAS (from `apps/client`):
+   ```
+   npx eas-cli build -p android --profile website-64bit
+   npx eas-cli build -p android --profile website-32bit
+   ```
+   The profiles (`eas.json`) build one kind of chip each (`ORG_GRADLE_PROJECT_reactNativeArchitectures`), and `expo-build-properties` compresses the native code (`useLegacyPackaging`), which is what took the old single APK from 96 MB down.
+3. Download both APKs, then `deploy/push-apk.sh <64-bit.apk> <32-bit.apk>`. It checks each file holds only its own chip code, uploads them as `splitify-<version>-64bit.apk` / `-32bit.apk`, points the stable names the landing page links to (`splitify-android.apk`, `splitify-android-32bit.apk`) at them, and writes `latest.json` (version, sizes) last. It keeps the current and the previous version.
+
+Android App Links (`/join`, `/group` open the app) need the signing key's SHA-256 in `apps/client/public/.well-known/assetlinks.json`. Google sign-in in the app needs an **Android** OAuth client (package `in.iambuzzdev.splitify` + the key's SHA-1) in the same Google Cloud project as the web client; the app asks for an ID token for the **web** client id (`EXPO_PUBLIC_GOOGLE_CLIENT_ID`, also set in EAS for preview and production). A Play Store build signed by Google would need its fingerprints added to both.
+
 ## Files
 - `deploy/setup-server.sh`: one-time setup, safe to rerun. 1 GB swap, ufw (SSH, 80, 443), Node.js 24 LTS from NodeSource and Caddy from its official repo (both signed apt repos), the `splitify` service user and folders.
-- `deploy/Caddyfile`: HTTPS for both names, one-page-app fallback to `index.html`, long cache for hashed `/_expo/static` files, `no-cache` for the rest.
+- `deploy/Caddyfile`: HTTPS for both names; the landing page at `/` (unless the query has `code=` or `error=`, which are sign-in returns for the app); `/download/*` from `/srv/splitify/downloads` as APK downloads; one-page-app fallback to `index.html` for every other path; long cache for hashed `/_expo/static` files, `no-cache` for the rest.
+- `deploy/push-apk.sh`: puts a new Android build on the website (above).
 - `deploy/splitify-api.service`: runs `node --env-file=/etc/splitify/api.env server.mjs` as `splitify`, restarts on failure, 600 MB memory cap, filesystem read-only.
 
 ## Look at it

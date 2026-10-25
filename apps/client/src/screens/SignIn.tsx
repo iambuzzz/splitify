@@ -1,5 +1,5 @@
 import { createElement, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, View } from 'react-native';
 import { ApiError, requestSignInEmail } from '../data/api';
 import { config } from '../data/config';
 import { googleConfigured, startGoogleSignIn, takeGoogleReturn } from '../data/google';
@@ -20,7 +20,7 @@ const CODE = /^\d{6,10}$/;
 function takeCallbackToken(): { tokenHash: string; type: string } | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return null;
   const p = new URLSearchParams(window.location.hash.slice(1));
-  window.history.replaceState(null, '', '/');
+  window.history.replaceState(null, '', '/groups');
   const tokenHash = p.get('token_hash');
   return tokenHash ? { tokenHash, type: p.get('type') ?? 'magiclink' } : null;
 }
@@ -275,7 +275,7 @@ export function SignIn() {
   );
 }
 
-/** Whether Google sign-in is set up here and switched on in Supabase (the button stays hidden until it is). Web only for now. */
+/** Whether Google sign-in is set up here and switched on in Supabase (the button stays hidden until it is). */
 function useGoogleEnabled(): boolean {
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -322,8 +322,12 @@ function GoogleButton({ onPress, disabled }: { onPress: () => void; disabled?: b
       })}
     >
       <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
-        {/* A plain <img>: react-native-web's Image does not draw this inline SVG. The button is web-only. */}
-        {createElement('img', { src: GOOGLE_G, width: 16, height: 16, alt: '' })}
+        {/* On the web a plain <img>: react-native-web's Image does not draw this inline SVG. */}
+        {Platform.OS === 'web' ? (
+          createElement('img', { src: GOOGLE_G, width: 16, height: 16, alt: '' })
+        ) : (
+          <Image source={require('../../assets/google-g.png')} style={{ width: 16, height: 16 }} accessibilityIgnoresInvertColors />
+        )}
       </View>
       <T size={16} weight="bold">
         Continue with Google

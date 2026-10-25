@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /$
+Disallow: /join
+Disallow: /group/
+Disallow: /auth/
+Disallow: /download/

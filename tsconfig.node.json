@@ -10,6 +10,7 @@
     "tests/api",
     "tests/pg",
     "tests/client-native.test.ts",
+    "tests/landing.test.ts",
     "apps/api/src"
   ],
   "exclude": []

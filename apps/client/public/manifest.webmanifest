@@ -1,0 +1,18 @@
+{
+  "id": "/groups",
+  "name": "Splitify",
+  "short_name": "Splitify",
+  "description": "Split trips, flats and dinners with friends. Every balance, the sum behind it, and the fewest payments to settle up.",
+  "start_url": "/groups",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F4F7F5",
+  "theme_color": "#F4F7F5",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

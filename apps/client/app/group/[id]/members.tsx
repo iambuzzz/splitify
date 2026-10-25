@@ -217,7 +217,7 @@ export default function Members() {
                 onPress={() => {
                   dispatch({ type: 'leave_group', groupId: group.id, acknowledgeBalance: true });
                   setConfirm(null);
-                  router.replace('/');
+                  router.replace('/groups');
                 }}
               />
               <Button title="Cancel" size="md" variant="secondary" flex={1} onPress={() => setConfirm(null)} />

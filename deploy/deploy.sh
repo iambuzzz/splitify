@@ -19,6 +19,18 @@ echo "2/4 Building the web app (API: $API)"
 # A value set here wins over apps/client/.env.local, which points at the local API.
 (cd apps/client && EXPO_PUBLIC_API_URL="$API" npx expo export --platform web --output-dir ../../dist/web >/dev/null)
 grep -rqF "$API" dist/web/_expo || { echo "The web build does not point at $API"; exit 1; }
+grep -qF 'rel="manifest"' dist/web/index.html || { echo "The web build lost its install tags (apps/client/public/index.html)"; exit 1; }
+# The landing page: Caddy serves it at /. Once it has loaded, it fetches the app's scripts in the
+# background (not on Save-Data connections), so "Open Splitify" opens fast.
+node -e '
+  const fs = require("fs");
+  const scripts = [...fs.readFileSync("dist/web/index.html", "utf8").matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  if (!scripts.length) throw new Error("No app scripts found in dist/web/index.html");
+  const warm = `<script>addEventListener("load",()=>setTimeout(()=>{if(navigator.connection&&navigator.connection.saveData)return;${JSON.stringify(scripts)}.forEach(h=>{const l=document.createElement("link");l.rel="prefetch";l.as="script";l.href=h;document.head.appendChild(l)})},1500))</script>`;
+  const page = fs.readFileSync("apps/landing/index.html", "utf8");
+  if (!page.includes("</body>")) throw new Error("apps/landing/index.html has no </body>");
+  fs.writeFileSync("dist/web/landing.html", page.replace("</body>", warm + "\n</body>"));
+'
 
 echo "3/4 Copying to the server"
 rsync -az --delete -e "ssh -i $KEY" dist/api/ "$TARGET:/srv/splitify/api/"

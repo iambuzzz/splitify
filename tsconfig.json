@@ -25,6 +25,7 @@
     "tests/db",
     "tests/api",
     "tests/pg",
-    "tests/client-native.test.ts"
+    "tests/client-native.test.ts",
+    "tests/landing.test.ts"
   ]
 }

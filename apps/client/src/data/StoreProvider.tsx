@@ -391,6 +391,8 @@ function RemoteStore({ children }: { children: ReactNode }) {
     },
     async signOut() {
       await auth.signOut();
+      // Websites go back to the landing page; the phone apps show sign-in.
+      if (Platform.OS === 'web') window.location.assign('/');
     },
     async inviteLink(groupId) {
       const inv = await api.send('POST', `/groups/${groupId}/invites`, {});

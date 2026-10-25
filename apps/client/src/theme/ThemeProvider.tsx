@@ -28,6 +28,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((saved) => {
         if (saved && saved in THEMES) setId(saved as ThemeId);
+        // Nothing picked in the app yet: wear the look tried on the landing page (same ids).
+        else if (Platform.OS === 'web') {
+          const tried = window.localStorage.getItem('splitify-look');
+          if (tried && tried in THEMES) setId(tried as ThemeId);
+        }
       })
       .catch(() => {});
   }, []);
