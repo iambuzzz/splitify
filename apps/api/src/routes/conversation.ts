@@ -1,5 +1,5 @@
 import type { Router } from '../app';
-import { membership, requireNotClosed } from '../context';
+import { membership, recordEvent, requireNotClosed } from '../context';
 import type { Tx } from '../db';
 import { ApiError } from '../errors';
 import { uuidv7 } from '../ids';
@@ -33,10 +33,13 @@ export function conversationRoutes(r: Router) {
       const m = await membership(tx, params.groupId!);
       await requireNotClosed(tx, m);
       const [a, b] = pairOf(m.memberId, params.memberId!);
+      const msgId = body.id ?? uuidv7();
       await tx.query(
         `insert into app.messages (id, group_id, author_id, kind, body, pair_a, pair_b) values ($1, $2, $3, 'text', $4, $5, $6)`,
-        [body.id ?? uuidv7(), m.group.id, m.memberId, body.body, a, b],
+        [msgId, m.group.id, m.memberId, body.body, a, b],
       );
+      // For the other person's notification; the text itself stays out of the activity log.
+      await recordEvent(tx, { groupId: m.group.id, actor: m.memberId, entityType: 'message', entityId: msgId, type: 'message.pair' });
       return pairThread(tx, m.group.id, a, b);
     },
     201,

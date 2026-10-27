@@ -31,6 +31,7 @@ import { Platform, Pressable, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { takePendingInvite, takeReturnPath } from '../src/data/invite';
 import { inviteInLink } from '../src/data/openedLink';
+import { onOpen as onNotificationOpen } from '../src/data/pushDevice';
 import { StoreProvider, useStore } from '../src/data/StoreProvider';
 import { SignIn } from '../src/screens/SignIn';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
@@ -133,6 +134,8 @@ function Shell() {
     // Signed in from another deep link (e.g. a settle-up reminder): back to that page.
     else if (back && pathname !== back) router.replace(back as Href);
   }, [ready]);
+  // A tapped notification opens its screen.
+  useEffect(() => (ready ? onNotificationOpen((url) => router.push(url as Href)) : undefined), [ready]);
   if (account && !ready) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.c.bg }}>

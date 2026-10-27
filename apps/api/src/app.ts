@@ -8,6 +8,7 @@ import type { VerifyToken } from './auth';
 import type { Db, Tx } from './db';
 import type { EmailSignIn } from './email-sign-in';
 import type { ReceiptStore } from './receipts-store';
+import { pushRoutes } from './push';
 import { ApiError, toApiError } from './errors';
 import { conversationRoutes } from './routes/conversation';
 import { expenseRoutes } from './routes/expenses';
@@ -30,6 +31,8 @@ export interface AppDeps {
   emailSignIn?: EmailSignIn;
   /** Where receipt photos and PDFs are kept. Without it, attaching them answers 503. */
   receipts?: ReceiptStore;
+  /** Web Push public key (VAPID), handed to browsers that turn notifications on. */
+  webPushKey?: string;
 }
 
 /** Invite tokens and sign-in emails: slow down anyone trying them in bulk. */
@@ -70,7 +73,7 @@ declare module 'fastify' {
   }
 }
 
-export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], rateLimitPerMinute = 300, trustProxy = false, emailSignIn, receipts }: AppDeps): FastifyInstance {
+export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], rateLimitPerMinute = 300, trustProxy = false, emailSignIn, receipts, webPushKey }: AppDeps): FastifyInstance {
   const app = Fastify({
     logger,
     bodyLimit: 256 * 1024,
@@ -221,6 +224,7 @@ export function buildApp({ db, verifyToken, logger = false, corsOrigins = [], ra
     snapshotRoutes(router, { receipts: !!receipts });
     conversationRoutes(router);
     receiptRoutes(router);
+    pushRoutes(router, webPushKey);
     receiptFileRoutes(scope, db, receipts);
   });
   return app;

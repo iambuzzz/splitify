@@ -6,6 +6,7 @@ import { supabaseResendSignIn } from './email-sign-in';
 import { supabaseVerifier } from './auth';
 import { cachedReceiptStore, folderReceiptStore, supabaseReceiptStore } from './receipts-store';
 import { pgDb } from './db';
+import { pushSender } from './push';
 
 const env = z
   .object({
@@ -34,6 +35,11 @@ const env = z
     // (production, needs SUPABASE_SECRET_KEY). Neither: attaching is switched off.
     RECEIPTS_DIR: z.string().min(1).optional(),
     RECEIPTS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9._-]{2,62}$/).optional(),
+    // Push notifications. Web Push needs a VAPID key pair (npx web-push generate-vapid-keys).
+    VAPID_PUBLIC_KEY: z.string().min(40).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(20).optional(),
+    /** Only the server sends: the API on a Mac shares the live database, and would send them twice. */
+    PUSH_SENDER: z.enum(['0', '1']).default('0'),
   })
   .safeParse(process.env);
 
@@ -60,6 +66,9 @@ const {
   APP_URL,
   RECEIPTS_DIR,
   RECEIPTS_BUCKET,
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY,
+  PUSH_SENDER,
 } = env.data;
 const receipts = RECEIPTS_DIR
   ? folderReceiptStore(resolve(ROOT, RECEIPTS_DIR))
@@ -80,13 +89,22 @@ const app = buildApp({
       ? supabaseResendSignIn({ supabaseUrl: SUPABASE_URL, secretKey: SUPABASE_SECRET_KEY, resendKey: RESEND_API_KEY, from: EMAIL_FROM, appUrl: APP_URL ?? CORS_ORIGINS[0]! })
       : undefined,
   receipts,
+  webPushKey: VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY ? VAPID_PUBLIC_KEY : undefined,
 });
+const push = pushSender({
+  db,
+  vapid: VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY ? { publicKey: VAPID_PUBLIC_KEY, privateKey: VAPID_PRIVATE_KEY, subject: APP_URL ?? CORS_ORIGINS[0]! } : undefined,
+  log: app.log,
+});
+if (PUSH_SENDER === '1') push.start();
 // Names only, never the values.
 console.log(SUPABASE_SECRET_KEY && RESEND_API_KEY ? 'Sign-in emails: sent by the API (Resend)' : 'Sign-in emails: Supabase built-in (set SUPABASE_SECRET_KEY and RESEND_API_KEY for codes)');
+console.log(PUSH_SENDER === '1' ? `Notifications: sent from here (phones${VAPID_PRIVATE_KEY ? ' and browsers' : ''})` : 'Notifications: not sent from here (PUSH_SENDER=1 on the server only)');
 console.log(RECEIPTS_DIR ? 'Receipts: kept in a local folder' : receipts ? 'Receipts: Supabase Storage' : 'Receipts: off (set RECEIPTS_DIR or RECEIPTS_BUCKET)');
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
+    push.stop();
     await app.close();
     await db.close();
     process.exit(0);

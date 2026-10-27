@@ -8,6 +8,7 @@ import { useTheme } from '../src/theme/ThemeProvider';
 import { Avatar, BigAmount, Button, Card, Divider, Dot, Label, Note, Screen, T, isHovered, styles, useWide } from '../src/ui/kit';
 import { Logo } from '../src/ui/Logo';
 import { ThemePicker } from '../src/ui/ThemePicker';
+import { NotificationsCard } from '../src/ui/NotificationsCard';
 import { UpdateBanner } from '../src/ui/UpdateBanner';
 import { useAppVersion } from '../src/ui/useAppVersion';
 
@@ -73,6 +74,7 @@ export default function Home() {
         </View>
       ) : null}
       <UpdateBanner />
+      {state.groups.length ? <NotificationsCard /> : null}
 
       <View style={wide ? { flexDirection: 'row', gap: 28, alignItems: 'flex-start' } : { gap: 16 }}>
         <View style={{ flex: wide ? 1 : undefined, gap: 16 }}>

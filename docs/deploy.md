@@ -32,6 +32,16 @@ After changing a key in `.env.local` (Resend, Supabase, database): `deploy/push-
 
 Android App Links (`/join`, `/group` open the app) need the signing key's SHA-256 in `apps/client/public/.well-known/assetlinks.json`. Google sign-in in the app needs an **Android** OAuth client (package `in.iambuzzdev.splitify` + the key's SHA-1) in the same Google Cloud project as the web client; the app asks for an ID token for the **web** client id (`EXPO_PUBLIC_GOOGLE_CLIENT_ID`, also set in EAS for preview and production). A Play Store build signed by Google would need its fingerprints added to both.
 
+## Notifications
+- **How:** every change writes an activity event; the API on the server (`PUSH_SENDER=1`, set by `deploy/push-env.sh`) reads new events every 5 s through `app.push_take()` and sends them: phones through Expo's push service (FCM underneath), browsers through Web Push (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` in `.env.local`, made with `npx web-push generate-vapid-keys`). New and changed bills are gathered for two minutes per person and group (in memory: a restart in that window drops that one batch). Lock screens show the group, a name and what happened, never amounts. Code: `apps/api/src/push.ts`, `apps/client/public/sw.js`, `apps/client/src/ui/useNotifications.ts`.
+- **Never set `PUSH_SENDER=1` on a Mac:** the local API shares the live database and would take the server's events.
+- **Android needs Firebase:** a Firebase project with the Android app `in.iambuzzdev.splitify`; its `google-services.json` stays out of git and goes to EAS as a file variable, read by `apps/client/app.config.js`:
+  ```
+  npx eas-cli env:create --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --environment preview --visibility secret
+  ```
+  The FCM V1 service account key (a secret JSON from Firebase → Project settings → Service accounts) is uploaded once in expo.dev → Credentials → Android → FCM V1. Without both, phones can't get a push token and the app says so.
+- **iPhone:** Web Push works only in the app added to the Home Screen (iOS 16.4+); the app shows the steps in Safari.
+
 ## Files
 - `deploy/setup-server.sh`: one-time setup, safe to rerun. 1 GB swap, ufw (SSH, 80, 443), Node.js 24 LTS from NodeSource and Caddy from its official repo (both signed apt repos), the `splitify` service user and folders.
 - `deploy/Caddyfile`: HTTPS for both names; the landing page at `/` (unless the query has `code=` or `error=`, which are sign-in returns for the app); `/download/*` from `/srv/splitify/downloads` as APK downloads; a path with a matching `.html` file (the guides) serves that page; one-page-app fallback to `index.html` for every other path; long cache for hashed `/_expo/static` files, `no-cache` for the rest.

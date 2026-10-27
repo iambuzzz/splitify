@@ -4,6 +4,7 @@ import { AppState, Platform } from 'react-native';
 import { ApiError, api, configureApi, fetchReceipt, uploadReceipt } from './api';
 import { uuidv7 } from './ids';
 import { config, remoteEnabled } from './config';
+import { forgetThisDevice } from '../ui/useNotifications';
 import { type Action, ME, type Receipt, type SeenMark, type State, actionGroup, reducer, seed } from './model';
 import { type Pending, type Snap, buildRemote, fetchGroupIds, fetchPulse, fetchSnapshot, perform, sendSeen, settled, withPending } from './remote';
 import { supabase } from './supabase';
@@ -405,6 +406,8 @@ function RemoteStore({ children }: { children: ReactNode }) {
       setName(me.displayName);
     },
     async signOut() {
+      // While still signed in: this device stops getting this person's notifications.
+      await forgetThisDevice().catch(() => {});
       await auth.signOut();
       // Websites go back to the landing page; the phone apps show sign-in.
       if (Platform.OS === 'web') window.location.assign('/');

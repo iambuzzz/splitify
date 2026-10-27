@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase's Android config: kept out of git, given to EAS builds as a file variable (app.config.js)
+google-services.json

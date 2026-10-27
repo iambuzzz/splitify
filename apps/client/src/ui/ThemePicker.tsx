@@ -1,16 +1,19 @@
 import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Modal, Pressable, View } from 'react-native';
 import { useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { THEMES, THEME_ORDER } from '../theme/themes';
 import { Button, T, useSheetBottom, useWide } from './kit';
 import { useAppVersion } from './useAppVersion';
+import { useNotifications } from './useNotifications';
 
 /** Bottom sheet (centred dialog on wide screens) for switching themes, signing out, and the app's version (with Update when there's a newer one). */
 export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const { account } = useStore();
   const app = useAppVersion();
+  const notes = useNotifications();
   const wide = useWide();
   const bottom = useSheetBottom(32);
   return (
@@ -64,6 +67,24 @@ export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => v
               );
             })}
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Notifications, ${notes.status === 'on' ? 'on' : 'off'} on this device`}
+            onPress={() => {
+              onClose();
+              router.push('/notifications');
+            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.c.border, marginTop: 4 }}
+          >
+            <Feather name={notes.status === 'on' ? 'bell' : 'bell-off'} size={18} color={theme.c.text} />
+            <T size={15} weight="bold" style={{ flex: 1 }}>
+              Notifications
+            </T>
+            <T size={13} color={notes.status === 'on' ? theme.c.get : theme.c.muted} weight="semibold">
+              {notes.status === 'on' ? 'On' : 'Off'}
+            </T>
+            <Feather name="chevron-right" size={18} color={theme.c.muted} />
+          </Pressable>
           {account?.email ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
               <T size={13} color={theme.c.muted} style={{ flex: 1 }} numberOfLines={1}>
