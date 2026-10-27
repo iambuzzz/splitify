@@ -8,6 +8,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Avatar, BigAmount, Dot, Label, T } from './kit';
 import { Logo } from './Logo';
 import { ThemePicker } from './ThemePicker';
+import { useAppVersion } from './useAppVersion';
 
 /** Laptop-only left column: overall balance, inbox count, groups and the theme switcher. */
 export function Sidebar() {
@@ -16,6 +17,7 @@ export function Sidebar() {
   const myName = useMyName();
   const path = usePathname();
   const [picker, setPicker] = useState(false);
+  const { update } = useAppVersion();
   const { net } = netAll(state);
   const needs = inbox(state).length;
   const marks = newMarks(state);
@@ -155,10 +157,11 @@ export function Sidebar() {
           <T size={14} weight="bold">
             {myName}
           </T>
-          <T size={12} color={theme.c.muted}>
-            Theme: {theme.name}
+          <T size={12} color={update ? theme.c.primary : theme.c.muted} weight={update ? 'bold' : 'regular'}>
+            {update ? 'New version ready' : `Theme: ${theme.name}`}
           </T>
         </View>
+        {update ? <Dot /> : null}
         <Feather name="sliders" size={18} color={theme.c.muted} />
       </Pressable>
       <ThemePicker open={picker} onClose={() => setPicker(false)} />

@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { folderReceiptStore, sniffType, supabaseReceiptStore } from '../../apps/api/src/receipts-store';
+import { cachedReceiptStore, folderReceiptStore, sniffType, supabaseReceiptStore } from '../../apps/api/src/receipts-store';
 import { postgresBackend } from '../pg/harness';
 import { type TestApi, type User, ok, testApi } from './harness';
 
@@ -153,6 +153,64 @@ describe('Supabase Storage receipt store', () => {
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBeUndefined();
     expect((await store.get('g/e/r1'))!.toString()).toBe('bytes');
     expect(await store.get('g/e/missing')).toBeNull();
+  });
+
+  it('a stalled or failed read is tried once more, then the app is told', async () => {
+    let calls = 0;
+    const warnings: Record<string, unknown>[] = [];
+    const flaky = (answers: (() => Promise<Response>)[]) =>
+      supabaseReceiptStore({
+        supabaseUrl: 'https://p.supabase.co',
+        secretKey: 'sb_secret_xxxxxxxxxxxxxxxx',
+        bucket: 'receipts',
+        readTimeoutMs: 50,
+        warn: (_msg, d) => warnings.push(d),
+        fetch: ((_url: string, init: RequestInit = {}) => {
+          const answer = answers[calls++]!;
+          // A stall: never answers, only gives up when the store's time limit aborts it.
+          return answer === stall ? new Promise((_, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason))) : answer();
+        }) as unknown as typeof fetch,
+      });
+    const stall = () => new Promise<Response>(() => {});
+    const ok = async () => new Response(Buffer.from('bytes'), { status: 200 });
+    const down = async () => new Response('{}', { status: 503 });
+
+    expect((await flaky([stall, ok]).get('g/e/r1'))!.toString()).toBe('bytes');
+    calls = 0;
+    expect((await flaky([down, ok]).get('g/e/r1'))!.toString()).toBe('bytes');
+    calls = 0;
+    await expect(flaky([down, stall]).get('g/e/r1')).rejects.toMatchObject({ status: 502 });
+    expect(warnings).toEqual([
+      { error: 'TimeoutError', attempt: 1 },
+      { status: 503, attempt: 1 },
+      { status: 503, attempt: 1 },
+      { error: 'TimeoutError', attempt: 2 },
+    ]);
+  });
+
+  it('keeps recent files in memory, within its size limit', async () => {
+    const reads: string[] = [];
+    const inner = folderReceiptStore(dir);
+    const store = cachedReceiptStore({ ...inner, get: (k) => (reads.push(k), inner.get(k)) }, 100);
+    const file = (n: number) => Buffer.alloc(n, 1);
+    await store.put('g/e/a', file(20), 'image/png');
+    await store.put('g/e/b', file(20), 'image/png');
+    expect((await store.get('g/e/a'))!.length).toBe(20);
+    expect(reads).toEqual([]);
+    // Over the limit: the one used longest ago (b, since a was just read) is let go first.
+    await store.put('g/e/c', file(20), 'image/png');
+    await store.put('g/e/d', file(20), 'image/png');
+    await store.put('g/e/e', file(20), 'image/png');
+    await store.put('g/e/f', file(20), 'image/png');
+    await store.get('g/e/a');
+    await store.get('g/e/b');
+    expect(reads).toEqual(['g/e/b']);
+    // Too big to keep (over a quarter of the limit): always read from storage.
+    await store.put('g/e/big', file(30), 'image/png');
+    await store.get('g/e/big');
+    expect(reads).toEqual(['g/e/b', 'g/e/big']);
+    await store.remove('g/e/a');
+    expect(await store.get('g/e/a')).toBeNull();
   });
 
   it('the folder store refuses keys that leave its folder', async () => {

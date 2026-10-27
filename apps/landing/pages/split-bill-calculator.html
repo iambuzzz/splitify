@@ -1,0 +1,240 @@
+<!--page {"title": "Split Bill Calculator: split a bill or trip in ₹ · Splitify", "description": "Free split bill calculator. Split a bill equally with service charge and tip, or enter who paid what on a trip to get the fewest payments. No sign-in.", "crumb": "Split bill calculator", "h1": "Split bill calculator", "blurb": "Split one bill, or settle a whole trip", "type": "tool", "updated": "2026-10-27"} -->
+<h1>Split bill calculator</h1>
+<p class="lede">Split a bill between friends in seconds, or enter who paid what on a trip and see who pays whom. Free, in rupees, nothing to sign up for.</p>
+
+<div class="calc" id="calc">
+  <div class="tabs" role="tablist" aria-label="What to work out">
+    <button type="button" role="tab" id="tab-bill" aria-controls="panel-bill" aria-selected="true">Split one bill</button>
+    <button type="button" role="tab" id="tab-trip" aria-controls="panel-trip" aria-selected="false" tabindex="-1">Who paid what</button>
+  </div>
+
+  <section class="panel" id="panel-bill" role="tabpanel" aria-labelledby="tab-bill">
+    <div class="calc-grid">
+      <form class="inputs" onsubmit="return false">
+        <label class="field"><span>Bill amount</span>
+          <span class="money"><i aria-hidden="true">₹</i><input id="billAmt" type="text" inputmode="decimal" autocomplete="off" placeholder="2,400"></span>
+        </label>
+        <div class="field"><span id="peopleLbl">People</span>
+          <div class="stepper" role="group" aria-labelledby="peopleLbl">
+            <button type="button" id="pplMinus" aria-label="One person fewer">−</button>
+            <output id="pplOut" aria-live="polite">3</output>
+            <button type="button" id="pplPlus" aria-label="One more person">+</button>
+          </div>
+        </div>
+        <div class="two">
+          <label class="field"><span>Service charge <small>(optional)</small></span>
+            <span class="money pct"><input id="svcPct" type="text" inputmode="decimal" autocomplete="off" placeholder="0"><i aria-hidden="true">%</i></span>
+          </label>
+          <label class="field"><span>Tip <small>(optional)</small></span>
+            <span class="money"><i aria-hidden="true">₹</i><input id="tipAmt" type="text" inputmode="decimal" autocomplete="off" placeholder="0"></span>
+          </label>
+        </div>
+        <label class="check"><input id="roundUp" type="checkbox"> Round up to whole rupees</label>
+      </form>
+      <div class="result" aria-live="polite">
+        <div id="billOut" class="res-empty">Enter the bill amount to see each person’s share.</div>
+        <div class="res-actions" id="billActions" hidden>
+          <button type="button" class="btn btn-ghost" data-copy="bill">Copy</button>
+          <a class="btn btn-ghost" id="billWa" target="_blank" rel="noopener">Share on WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-trip" role="tabpanel" aria-labelledby="tab-trip" hidden>
+    <div class="calc-grid">
+      <form class="inputs" onsubmit="return false">
+        <p class="hint">Everyone shares the total equally. Put what each person paid (0 if they paid nothing).</p>
+        <div id="rows" class="rows"></div>
+        <button type="button" class="btn btn-ghost add" id="addRow">+ Add a person</button>
+      </form>
+      <div class="result" aria-live="polite">
+        <div id="tripOut" class="res-empty">Add what each person paid to see who pays whom.</div>
+        <div class="res-actions" id="tripActions" hidden>
+          <button type="button" class="btn btn-ghost" data-copy="trip">Copy</button>
+          <a class="btn btn-ghost" id="tripWa" target="_blank" rel="noopener">Share on WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="cta">
+  <h2>Splitting more than one bill?</h2>
+  <p>Make a group in Splitify and add bills as they happen. It keeps everyone’s balance, shows the sum behind it, and keeps a record of every payment. Free, no ads.</p>
+  <div class="btns"><a class="btn btn-primary btn-lg" href="/new">Start a group</a><a class="btn btn-ghost btn-lg" href="/?tour">See how it works</a></div>
+</div>
+
+<h2>How the calculator splits a bill</h2>
+<p>It adds the service charge (as a percent of the bill) and the tip to the bill, then divides the total by the number of people. Amounts are worked out to the paisa, so the shares always add up to exactly the total: when a bill doesn’t divide evenly, one or two people pay one paisa more. Tick <strong>Round up to whole rupees</strong> to get easier numbers; the calculator shows how much extra that collects.</p>
+
+<h2>How “Who paid what” works out the payments</h2>
+<p>Each person’s share is the total divided by the number of people. Their balance is what they paid minus their share: positive means they get money back, negative means they owe. The calculator then matches the person who owes the most with the person who is owed the most, again and again, until everyone is square. That takes at most one payment fewer than the number of people, and usually fewer.</p>
+<div class="bill">
+  <h4>Example: a weekend in Goa, 4 friends</h4>
+  <table>
+    <tr><th>Who</th><th>Paid</th><th>Share</th><th>Balance</th></tr>
+    <tr><td>Aarav (hotel)</td><td class="num">₹12,000</td><td class="num">₹5,250</td><td class="num get">+₹6,750</td></tr>
+    <tr><td>Kabir (scooty)</td><td class="num">₹3,200</td><td class="num">₹5,250</td><td class="num owe">−₹2,050</td></tr>
+    <tr><td>Priya (petrol)</td><td class="num">₹1,800</td><td class="num">₹5,250</td><td class="num owe">−₹3,450</td></tr>
+    <tr><td>You (food)</td><td class="num">₹4,000</td><td class="num">₹5,250</td><td class="num owe">−₹1,250</td></tr>
+    <tr class="total"><td>Total</td><td class="num">₹21,000</td><td class="num">₹21,000</td><td class="num">₹0</td></tr>
+  </table>
+</div>
+<p>Three payments settle it: Priya pays Aarav ₹3,450, Kabir pays Aarav ₹2,050 and you pay Aarav ₹1,250. For a step-by-step version, read <a href="/split-trip-expenses">how to split trip expenses</a>.</p>
+
+<section class="faq">
+  <h2>Questions</h2>
+  <details><summary>Is this split bill calculator free?</summary><p>Yes. It’s free, works in any browser on your phone or laptop, and needs no sign-in. Nothing you type leaves your device.</p></details>
+  <details><summary>How do I split a bill with service charge and tip?</summary><p>Enter the bill amount, the service charge as a percent and the tip in rupees. The calculator adds them to the bill and divides the total equally between everyone.</p></details>
+  <details><summary>What if people ordered different amounts?</summary><p>Split each person’s own dishes to them, share the common dishes, and spread tax and service charge in proportion to what each person ordered. Our guide to <a href="/split-dinner-bill">splitting a dinner bill</a> shows how, with an example.</p></details>
+  <details><summary>How do I work out who owes whom after a trip?</summary><p>Use “Who paid what”: enter what each person paid in total. The calculator shows everyone’s share and balance, and the fewest payments that settle the trip.</p></details>
+  <details><summary>Can I save the result?</summary><p>Copy it or share it on WhatsApp from the result. To keep a running record for a trip or a shared flat, make a free group in Splitify.</p></details>
+</section>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const fmt = (p, paise) => '₹' + (p / 100).toLocaleString('en-IN', { minimumFractionDigits: paise ? 2 : 0, maximumFractionDigits: 2 });
+  const money = (p) => fmt(p, p % 100 !== 0);
+  /** Rupees typed by a person ("2,400.5") to whole paise; NaN when it isn't a number. */
+  const paise = (v) => {
+    const t = String(v).replace(/[,\s₹]/g, '');
+    if (!t) return 0;
+    if (!/^\d*\.?\d{0,2}$/.test(t)) return NaN;
+    return Math.round(parseFloat(t) * 100);
+  };
+  const SITE = 'splitify.iambuzzdev.in/split-bill-calculator';
+  const wa = (el, msg) => (el.href = 'https://wa.me/?text=' + encodeURIComponent(msg + '\n\nWorked out on ' + SITE));
+  const texts = {};
+
+  // Tabs
+  const tabs = [$('tab-bill'), $('tab-trip')];
+  const show = (t) => {
+    tabs.forEach((b) => {
+      const on = b === t;
+      b.setAttribute('aria-selected', on);
+      b.tabIndex = on ? 0 : -1;
+      $(b.getAttribute('aria-controls')).hidden = !on;
+    });
+  };
+  tabs.forEach((b, i) => {
+    b.addEventListener('click', () => show(b));
+    b.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const next = tabs[(i + 1) % 2];
+      show(next);
+      next.focus();
+    });
+  });
+
+  // One bill
+  let people = 3;
+  const bill = () => {
+    $('pplOut').textContent = people;
+    $('pplMinus').disabled = people <= 2;
+    const amt = paise($('billAmt').value), pct = parseFloat(($('svcPct').value || '0').replace(',', '.')), tip = paise($('tipAmt').value);
+    const out = $('billOut');
+    if (!amt || isNaN(amt) || isNaN(tip) || isNaN(pct) || pct < 0 || pct > 100) {
+      out.className = 'res-empty';
+      out.textContent = isNaN(amt) || isNaN(tip) || isNaN(pct) ? 'Use numbers only, like 2400 or 2400.50.' : 'Enter the bill amount to see each person’s share.';
+      $('billActions').hidden = true;
+      return;
+    }
+    const svc = Math.round((amt * pct) / 100);
+    const total = amt + svc + tip;
+    const per = Math.floor(total / people), extra = total - per * people;
+    let main, sub;
+    if ($('roundUp').checked) {
+      const up = Math.ceil(total / people / 100) * 100;
+      main = fmt(up, false);
+      const over = up * people - total;
+      sub = over ? `Collects ${money(over)} more than the bill. Keep it as tip, or give it back.` : 'Adds up exactly to the bill.';
+    } else {
+      main = money(extra ? per + 1 : per);
+      sub = extra ? `${extra} ${extra === 1 ? 'person pays' : 'people pay'} ${money(per + 1)} and ${people - extra} ${people - extra === 1 ? 'pays' : 'pay'} ${money(per)}, so it adds up to the paisa.` : 'Everyone pays the same, and it adds up exactly.';
+    }
+    const lines = [['Bill', amt]];
+    if (svc) lines.push([`Service charge (${pct}%)`, svc]);
+    if (tip) lines.push(['Tip', tip]);
+    out.className = '';
+    out.innerHTML =
+      `<p class="res-k">Each person pays</p><p class="res-big num">${main}</p><p class="res-sub">${sub}</p>` +
+      `<table class="res-t">${lines.map(([k, v]) => `<tr><td>${k}</td><td class="num">${money(v)}</td></tr>`).join('')}<tr class="total"><td>Total for ${people} people</td><td class="num">${money(total)}</td></tr></table>`;
+    texts.bill = `Bill split ${people} ways: ${main} each (total ${money(total)}).`;
+    wa($('billWa'), texts.bill);
+    $('billActions').hidden = false;
+  };
+  ['billAmt', 'svcPct', 'tipAmt', 'roundUp'].forEach((id) => $(id).addEventListener('input', bill));
+  $('pplMinus').addEventListener('click', () => { people = Math.max(2, people - 1); bill(); });
+  $('pplPlus').addEventListener('click', () => { people = Math.min(99, people + 1); bill(); });
+  bill();
+
+  // Who paid what
+  const rows = $('rows');
+  // "You pay", but "Priya pays".
+  const pays = (name) => (/^you$/i.test(name) ? 'pay' : 'pays');
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const addRow = (focus) => {
+    const n = rows.children.length + 1;
+    const r = document.createElement('div');
+    r.className = 'row';
+    r.innerHTML =
+      `<input class="name" type="text" autocomplete="off" aria-label="Name of person ${n}" placeholder="Person ${n}">` +
+      `<span class="money"><i aria-hidden="true">₹</i><input class="paid" type="text" inputmode="decimal" autocomplete="off" aria-label="What person ${n} paid" placeholder="0"></span>` +
+      `<button type="button" class="del" aria-label="Remove person ${n}">×</button>`;
+    r.querySelector('.del').addEventListener('click', () => { if (rows.children.length > 2) { r.remove(); trip(); } });
+    r.querySelectorAll('input').forEach((i) => i.addEventListener('input', trip));
+    rows.appendChild(r);
+    if (focus) r.querySelector('.name').focus();
+  };
+  const trip = () => {
+    const ppl = [...rows.children].map((r, i) => ({ name: r.querySelector('.name').value.trim() || `Person ${i + 1}`, paid: paise(r.querySelector('.paid').value) }));
+    rows.querySelectorAll('.del').forEach((b) => (b.disabled = rows.children.length <= 2));
+    const out = $('tripOut');
+    const total = ppl.reduce((s, p) => s + (p.paid || 0), 0);
+    if (ppl.some((p) => isNaN(p.paid)) || !total) {
+      out.className = 'res-empty';
+      out.textContent = ppl.some((p) => isNaN(p.paid)) ? 'Use numbers only, like 1200 or 1200.50.' : 'Add what each person paid to see who pays whom.';
+      $('tripActions').hidden = true;
+      return;
+    }
+    // Shares to the paisa: the first few people take the leftover paise so the shares add up exactly.
+    const per = Math.floor(total / ppl.length), extra = total - per * ppl.length;
+    ppl.forEach((p, i) => { p.share = per + (i < extra ? 1 : 0); p.bal = p.paid - p.share; });
+    // Fewest payments: the one who owes most pays the one owed most, until everyone is square.
+    const owe = ppl.filter((p) => p.bal < 0).map((p) => ({ p, left: -p.bal }));
+    const get = ppl.filter((p) => p.bal > 0).map((p) => ({ p, left: p.bal }));
+    const plan = [];
+    while (owe.length && get.length) {
+      owe.sort((a, b) => b.left - a.left); get.sort((a, b) => b.left - a.left);
+      const a = owe[0], b = get[0], amt = Math.min(a.left, b.left);
+      plan.push({ from: a.p.name, to: b.p.name, amt });
+      a.left -= amt; b.left -= amt;
+      if (!a.left) owe.shift();
+      if (!b.left) get.shift();
+    }
+    out.className = '';
+    out.innerHTML =
+      `<p class="res-k">${plan.length ? `${plan.length} ${plan.length === 1 ? 'payment settles' : 'payments settle'} it` : 'Everyone is already square'}</p>` +
+      (plan.length ? `<ul class="pays">${plan.map((x) => `<li><span><b>${esc(x.from)}</b> ${pays(x.from)} <b>${esc(x.to)}</b></span><span class="num">${money(x.amt)}</span></li>`).join('')}</ul>` : '') +
+      `<table class="res-t"><tr><th>Who</th><th>Paid</th><th>Balance</th></tr>${ppl
+        .map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${money(p.paid)}</td><td class="num ${p.bal > 0 ? 'get' : p.bal < 0 ? 'owe' : ''}">${p.bal > 0 ? '+' : p.bal < 0 ? '−' : ''}${money(Math.abs(p.bal))}</td></tr>`)
+        .join('')}<tr class="total"><td>Total</td><td class="num">${money(total)}</td><td class="num">${money(per)}${extra ? '+' : ''} each</td></tr></table>`;
+    texts.trip = `Total ${money(total)}, ${money(per)} each.\n` + (plan.length ? plan.map((x) => `${x.from} ${pays(x.from)} ${x.to} ${money(x.amt)}`).join('\n') : 'Everyone is square.');
+    wa($('tripWa'), texts.trip);
+    $('tripActions').hidden = false;
+  };
+  for (let i = 0; i < 3; i++) addRow(false);
+  $('addRow').addEventListener('click', () => { addRow(true); trip(); });
+  trip();
+
+  document.querySelectorAll('[data-copy]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(texts[b.dataset.copy] + '\n\nWorked out on ' + SITE); b.textContent = 'Copied'; }
+      catch { b.textContent = 'Couldn’t copy'; }
+      setTimeout(() => (b.textContent = 'Copy'), 1600);
+    }),
+  );
+})();
+</script>

@@ -13,11 +13,12 @@ import { prepareReceipt } from './prepareReceipt';
 const TILE = 76;
 const fmtWhen = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
-/** Loads a receipt's display URL (fetched with the sign-in token, then kept). */
+/** Loads a receipt's display URL (fetched with the sign-in token, then kept). `retry` loads it again after a failure. */
 function useReceiptUrl(r: Receipt | null) {
   const { receiptUrl } = useStore();
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     let live = true;
     setUrl(null);
@@ -26,46 +27,59 @@ function useReceiptUrl(r: Receipt | null) {
     return () => {
       live = false;
     };
-  }, [r?.id]);
-  return { url, failed };
+  }, [r?.id, tries]);
+  return { url, failed, retry: () => setTries((n) => n + 1) };
 }
 
-function Tile({ r, onPress }: { r: Receipt; onPress: () => void }) {
+function Tile({ r, onPress, onRemove }: { r: Receipt; onPress: () => void; onRemove?: () => void }) {
   const { theme } = useTheme();
   const pdf = r.contentType === 'application/pdf';
   const { url, failed } = useReceiptUrl(pdf ? null : r);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={pdf ? 'Open bill (PDF)' : 'Open bill photo'}
-      onPress={onPress}
-      style={(st) => ({ width: TILE, height: TILE, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: theme.c.border, backgroundColor: theme.c.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: isHovered(st) ? 0.85 : 1 })}
-    >
-      {pdf ? (
-        <View style={{ alignItems: 'center', gap: 2 }}>
-          <Feather name="file-text" size={24} color={theme.c.text} />
-          <T size={11} weight="bold">
-            PDF
-          </T>
-        </View>
-      ) : url ? (
-        <Image source={{ uri: url }} style={{ width: TILE, height: TILE }} resizeMode="cover" accessibilityIgnoresInvertColors />
-      ) : failed ? (
-        <Feather name="image" size={22} color={theme.c.muted} />
-      ) : (
-        <ActivityIndicator size="small" color={theme.c.muted} />
-      )}
-    </Pressable>
+    <View style={{ width: TILE, height: TILE }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={pdf ? 'Open bill (PDF)' : 'Open bill photo'}
+        onPress={onPress}
+        style={(st) => ({ width: TILE, height: TILE, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: theme.c.border, backgroundColor: theme.c.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: isHovered(st) ? 0.85 : 1 })}
+      >
+        {pdf ? (
+          <View style={{ alignItems: 'center', gap: 2 }}>
+            <Feather name="file-text" size={24} color={theme.c.text} />
+            <T size={11} weight="bold">
+              PDF
+            </T>
+          </View>
+        ) : url ? (
+          <Image source={{ uri: url }} style={{ width: TILE, height: TILE }} resizeMode="cover" accessibilityIgnoresInvertColors />
+        ) : failed ? (
+          <Feather name="image" size={22} color={theme.c.muted} />
+        ) : (
+          <ActivityIndicator size="small" color={theme.c.muted} />
+        )}
+      </Pressable>
+      {onRemove ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={pdf ? 'Remove this PDF' : 'Remove this photo'}
+          onPress={onRemove}
+          hitSlop={6}
+          style={(st) => ({ position: 'absolute', top: -6, right: -6, width: 26, height: 26, borderRadius: 13, backgroundColor: theme.c.text, alignItems: 'center', justifyContent: 'center', opacity: isHovered(st) ? 0.85 : 1 })}
+        >
+          <Feather name="trash-2" size={13} color={theme.c.bg} />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
 /** Full-size view of one receipt, with who added it and (for those allowed) Remove. */
-function Viewer({ r, canRemove, onRemove, onClose, name }: { r: Receipt; canRemove: boolean; onRemove: () => void; onClose: () => void; name: (id: string) => string }) {
-  const { theme } = useTheme();
+function Viewer({ r, canRemove, askRemove, onRemove, onClose, name }: { r: Receipt; canRemove: boolean; askRemove: boolean; onRemove: () => void; onClose: () => void; name: (id: string) => string }) {
   const wide = useWide();
   const pdf = r.contentType === 'application/pdf';
-  const { url, failed } = useReceiptUrl(r);
-  const [confirm, setConfirm] = useState(false);
+  const { url, failed, retry } = useReceiptUrl(r);
+  // Opened from the bin on the tile: straight to "remove it?", with the file in view.
+  const [confirm, setConfirm] = useState(askRemove);
   const insets = useSafeAreaInsets();
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
@@ -85,7 +99,12 @@ function Viewer({ r, canRemove, onRemove, onClose, name }: { r: Receipt; canRemo
           </View>
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             {failed ? (
-              <T color="#FFFFFF">This file couldn’t be loaded. Check your connection and try again.</T>
+              <View style={{ alignItems: 'center', gap: 14 }}>
+                <T color="#FFFFFF" style={{ textAlign: 'center' }}>
+                  This file didn’t load. It’s safe; try again.
+                </T>
+                <Button title="Try again" icon="refresh-cw" size="md" onPress={retry} />
+              </View>
             ) : !url ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : pdf ? (
@@ -136,7 +155,7 @@ export function Receipts({ expense: e, name }: { expense: Expense; name: (id: st
     params.upload ? `${params.upload === '1' ? 'A photo' : `${params.upload} photos`} couldn’t be added. The expense is saved; try adding again here.` : null,
   );
   const [dup, setDup] = useState<DuplicateOf | null>(fromForm ? { expenseId: fromForm.id, title: fromForm.title, sameExpense: false } : null);
-  const [open, setOpen] = useState<Receipt | null>(null);
+  const [open, setOpen] = useState<{ r: Receipt; askRemove: boolean } | null>(null);
   const member = state.groups.find((g) => g.id === e.groupId)?.members.includes(ME) ?? false;
   const canAdd = features.receipts && Platform.OS === 'web' && member && e.receipts.length < 20;
   const canRemove = (r: Receipt) => member && (r.by === ME || e.payer === ME || isAdmin(state, e.groupId));
@@ -165,7 +184,7 @@ export function Receipts({ expense: e, name }: { expense: Expense; name: (id: st
       <Label>{e.receipts.length ? `Bill photos (${e.receipts.length})` : 'Bill photo'}</Label>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {e.receipts.map((r) => (
-          <Tile key={r.id} r={r} onPress={() => setOpen(r)} />
+          <Tile key={r.id} r={r} onPress={() => setOpen({ r, askRemove: false })} onRemove={canRemove(r) ? () => setOpen({ r, askRemove: true }) : undefined} />
         ))}
         {Array.from({ length: busy }, (_, i) => (
           <View key={`up${i}`} accessibilityLabel="Uploading" style={{ width: TILE, height: TILE, borderRadius: 12, borderWidth: 1, borderColor: theme.c.border, alignItems: 'center', justifyContent: 'center' }}>
@@ -205,12 +224,14 @@ export function Receipts({ expense: e, name }: { expense: Expense; name: (id: st
       ) : null}
       {open ? (
         <Viewer
-          r={open}
+          key={open.r.id}
+          r={open.r}
           name={name}
-          canRemove={canRemove(open)}
+          canRemove={canRemove(open.r)}
+          askRemove={open.askRemove}
           onClose={() => setOpen(null)}
           onRemove={() => {
-            dispatch({ type: 'remove_receipt', id: e.id, receiptId: open.id });
+            dispatch({ type: 'remove_receipt', id: e.id, receiptId: open.r.id });
             setOpen(null);
           }}
         />

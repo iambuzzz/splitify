@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { buildApp } from './app';
 import { supabaseResendSignIn } from './email-sign-in';
 import { supabaseVerifier } from './auth';
-import { folderReceiptStore, supabaseReceiptStore } from './receipts-store';
+import { cachedReceiptStore, folderReceiptStore, supabaseReceiptStore } from './receipts-store';
 import { pgDb } from './db';
 
 const env = z
@@ -64,7 +64,8 @@ const {
 const receipts = RECEIPTS_DIR
   ? folderReceiptStore(resolve(ROOT, RECEIPTS_DIR))
   : RECEIPTS_BUCKET && SUPABASE_SECRET_KEY
-    ? supabaseReceiptStore({ supabaseUrl: SUPABASE_URL, secretKey: SUPABASE_SECRET_KEY, bucket: RECEIPTS_BUCKET })
+    ? // About 40 MB of recently opened bills in memory (the server has ~500 MB spare).
+      cachedReceiptStore(supabaseReceiptStore({ supabaseUrl: SUPABASE_URL, secretKey: SUPABASE_SECRET_KEY, bucket: RECEIPTS_BUCKET }), 40 * 1024 * 1024)
     : undefined;
 const db = pgDb({ connectionString: DATABASE_URL, caCert: DATABASE_CA_CERT ? readFileSync(resolve(ROOT, DATABASE_CA_CERT), 'utf8') : undefined });
 const app = buildApp({

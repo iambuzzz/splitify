@@ -9,6 +9,7 @@ import { Avatar, BigAmount, Button, Card, Divider, Dot, Label, Note, Screen, T, 
 import { Logo } from '../src/ui/Logo';
 import { ThemePicker } from '../src/ui/ThemePicker';
 import { UpdateBanner } from '../src/ui/UpdateBanner';
+import { useAppVersion } from '../src/ui/useAppVersion';
 
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
@@ -18,6 +19,7 @@ export default function Home() {
   const myName = useMyName();
   const wide = useWide();
   const [picker, setPicker] = useState(false);
+  const { update } = useAppVersion();
   const [showClosed, setShowClosed] = useState(false);
   const receipt = theme.family === 'receipt';
   const { net, get, pay } = netAll(state);
@@ -62,7 +64,11 @@ export default function Home() {
           <Logo />
           <Pressable accessibilityRole="button" accessibilityLabel="Change theme" onPress={() => setPicker(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <MaterialCommunityIcons name="palette-outline" size={22} color={theme.c.text} />
-            <Avatar name={myName} size={36} />
+            <View>
+              <Avatar name={myName} size={36} />
+              {/* A newer version: the Theme panel has the Update button. */}
+              {update ? <Dot size={11} style={{ position: 'absolute', top: -1, right: -1, borderWidth: 2, borderColor: theme.c.bg }} /> : null}
+            </View>
           </Pressable>
         </View>
       ) : null}

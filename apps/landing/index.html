@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN">
 <head>
 <meta charset="utf-8">
 <script>
@@ -19,11 +19,12 @@
 })();
 </script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Splitify · Split trips, flats and dinners</title>
-<meta name="description" content="Split trips, flats and dinners with friends. Splitify keeps every balance, shows the sum behind it, and finds the fewest payments to settle up.">
+<title>Splitify · Split bills and trip expenses with friends, free</title>
+<meta name="description" content="Free bill splitter for trips, flatmates and dinners. Add expenses in ₹, see who owes whom and why, and settle up in the fewest payments. No ads.">
 <link rel="canonical" href="https://splitify.iambuzzdev.in/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Splitify">
+<meta property="og:locale" content="en_IN">
 <meta property="og:url" content="https://splitify.iambuzzdev.in/">
 <meta property="og:title" content="Splitify · Know who owes what. And why.">
 <meta property="og:description" content="Split trips, flats and dinners with friends. Every balance, the sum behind it, and the fewest payments to settle up.">
@@ -31,6 +32,7 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://splitify.iambuzzdev.in/#site","name":"Splitify","url":"https://splitify.iambuzzdev.in/","inLanguage":"en-IN"},{"@type":"WebApplication","@id":"https://splitify.iambuzzdev.in/#app","name":"Splitify","url":"https://splitify.iambuzzdev.in/","description":"Split bills and expenses with friends on trips, in shared flats and at dinners. See who owes whom and why, and settle up in the fewest payments.","applicationCategory":"FinanceApplication","operatingSystem":"Android, iOS, Windows, macOS, Web browser","browserRequirements":"Requires JavaScript","image":"https://splitify.iambuzzdev.in/og.jpg","screenshot":"https://splitify.iambuzzdev.in/og.jpg","inLanguage":"en-IN","offers":{"@type":"Offer","price":"0","priceCurrency":"INR"},"featureList":["Split equally, by exact amounts, percent or shares","Balances that show their working","Fewest payments to settle up","Suggest a change with a reason; full edit history","Bill photos on every expense","Works on Android, iPhone, Windows and Mac"]},{"@type":"FAQPage","@id":"https://splitify.iambuzzdev.in/#faq","mainEntity":[{"@type":"Question","name":"Is Splitify free?","acceptedAnswer":{"@type":"Answer","text":"Yes. Splitify is free, with no ads and no daily limit on how many expenses you add."}},{"@type":"Question","name":"Do my friends need to install an app?","acceptedAnswer":{"@type":"Answer","text":"No. Send them the group’s invite link; it opens in any browser and they sign in with Google or a code sent to their email. The Android, iPhone, Windows and Mac apps are optional."}},{"@type":"Question","name":"How does Splitify work out who owes whom?","acceptedAnswer":{"@type":"Answer","text":"Your balance is what you paid minus your share of every bill. Splitify then finds the fewest payments that settle everyone, and tapping Why? next to any balance shows the sum line by line."}},{"@type":"Question","name":"Can we split a bill unequally?","acceptedAnswer":{"@type":"Answer","text":"Yes. Split equally, by exact amounts, by percent or by shares, for example by the nights each person stayed. People who weren’t there can be left out of a bill."}},{"@type":"Question","name":"Can someone change an amount without the group knowing?","acceptedAnswer":{"@type":"Answer","text":"No. Every change keeps its history and shows who changed what. Anyone in the group can suggest a fix with a reason, and the person who added the bill accepts or declines it."}},{"@type":"Question","name":"How do we settle up?","acceptedAnswer":{"@type":"Answer","text":"Pay each other the way you normally do, by UPI or cash, and record the payment in Splitify. It waits until the person who got the money confirms it. Splitify never moves money itself."}},{"@type":"Question","name":"Does it work on iPhone, Windows and Mac?","acceptedAnswer":{"@type":"Answer","text":"Yes. On iPhone, open the site in Safari and tap Share, then Add to Home Screen. On Windows and Mac, install it from Chrome or Edge. Android has its own app, a 20 MB download from this page."}}]}]}</script>
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -490,7 +492,22 @@ main,footer{overflow-x:clip}
 .foot a{text-decoration:none}
 .foot a:hover{color:var(--text)}
 .foot .sp{margin-left:auto}
-@media (max-width:700px){.foot{flex-direction:column;justify-content:center;text-align:center;gap:8px}.foot .sp{margin-left:0}}
+.foot-links{display:flex;flex-wrap:wrap;gap:6px 18px}
+.foot-links a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--border-2);text-underline-offset:3px}
+/* Questions: plain disclosure rows, one line between each, like the app's lists. */
+.faq-in{max-width:880px}
+.faq-list{border-top:1px var(--rule) var(--border-2)}
+.faq-q{border-bottom:1px var(--rule) var(--border-2)}
+.faq-q summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 2px;font:700 clamp(17px,1.6vw,20px)/1.3 var(--f-body);color:var(--text)}
+.faq-q summary::-webkit-details-marker{display:none}
+.faq-q summary:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:6px}
+.faq-x{flex:none;position:relative;width:28px;height:28px;border-radius:999px;border:1.5px solid var(--border-2)}
+.faq-x::before,.faq-x::after{content:"";position:absolute;left:50%;top:50%;width:12px;height:2px;margin:-1px 0 0 -6px;background:var(--text);border-radius:2px;transition:transform .25s var(--ease)}
+.faq-x::after{transform:rotate(90deg)}
+.faq-q[open] .faq-x::after{transform:rotate(0)}
+.faq-q p{margin:-6px 0 0;padding:0 48px 22px 2px;color:var(--muted);font-size:16px;line-height:1.6;max-width:68ch}
+.lede a{color:var(--text);text-underline-offset:3px}
+@media (max-width:700px){.foot{flex-direction:column;justify-content:center;text-align:center;gap:8px}.foot .sp{margin-left:0}.foot-links{justify-content:center}.faq-q p{padding-right:0}}
 
 
 /* ---------- Ticker ---------- */
@@ -1866,6 +1883,26 @@ main,footer{overflow-x:clip}
     </div>
   </section>
 
+  <!-- Questions people search for; the same text is in the FAQPage data in the head. -->
+  <section class="sec faq" id="faq">
+    <div class="wrap faq-in">
+      <div class="sec-head rv">
+        <p class="eyebrow">Questions</p>
+        <h2>Before you make the group.</h2>
+        <p class="lede">Or try the <a href="/split-bill-calculator">free split bill calculator</a> first, no sign-in needed.</p>
+      </div>
+      <div class="faq-list">
+        <details class="faq-q"><summary>Is Splitify free?<span class="faq-x" aria-hidden="true"></span></summary><p>Yes. Splitify is free, with no ads and no daily limit on how many expenses you add.</p></details>
+        <details class="faq-q"><summary>Do my friends need to install an app?<span class="faq-x" aria-hidden="true"></span></summary><p>No. Send them the group’s invite link; it opens in any browser and they sign in with Google or a code sent to their email. The Android, iPhone, Windows and Mac apps are optional.</p></details>
+        <details class="faq-q"><summary>How does Splitify work out who owes whom?<span class="faq-x" aria-hidden="true"></span></summary><p>Your balance is what you paid minus your share of every bill. Splitify then finds the fewest payments that settle everyone, and tapping Why? next to any balance shows the sum line by line.</p></details>
+        <details class="faq-q"><summary>Can we split a bill unequally?<span class="faq-x" aria-hidden="true"></span></summary><p>Yes. Split equally, by exact amounts, by percent or by shares, for example by the nights each person stayed. People who weren’t there can be left out of a bill.</p></details>
+        <details class="faq-q"><summary>Can someone change an amount without the group knowing?<span class="faq-x" aria-hidden="true"></span></summary><p>No. Every change keeps its history and shows who changed what. Anyone in the group can suggest a fix with a reason, and the person who added the bill accepts or declines it.</p></details>
+        <details class="faq-q"><summary>How do we settle up?<span class="faq-x" aria-hidden="true"></span></summary><p>Pay each other the way you normally do, by UPI or cash, and record the payment in Splitify. It waits until the person who got the money confirms it. Splitify never moves money itself.</p></details>
+        <details class="faq-q"><summary>Does it work on iPhone, Windows and Mac?<span class="faq-x" aria-hidden="true"></span></summary><p>Yes. On iPhone, open the site in Safari and tap Share, then Add to Home Screen. On Windows and Mac, install it from Chrome or Edge. Android has its own app, a 20 MB download from this page.</p></details>
+      </div>
+    </div>
+  </section>
+
   <!-- CTA -->
   <section class="cta" id="cta">
     <div class="wrap">
@@ -1895,6 +1932,12 @@ main,footer{overflow-x:clip}
 <footer class="wrap foot">
   <a class="logo" href="#top"><span class="mark" aria-hidden="true"></span>Splitify</a>
   <span>Split trips, flats and dinners.</span>
+  <nav class="foot-links" aria-label="Guides and tools">
+    <a href="/split-bill-calculator">Split bill calculator</a>
+    <a href="/split-trip-expenses">Split trip expenses</a>
+    <a href="/split-rent-with-flatmates">Split rent with flatmates</a>
+    <a href="/split-dinner-bill">Split a dinner bill</a>
+  </nav>
   <a class="sp mono" href="/?tour">splitify.iambuzzdev.in</a>
 </footer>
 

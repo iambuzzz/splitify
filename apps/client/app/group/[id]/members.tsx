@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { uuidv7 } from '../../../src/data/ids';
 import { ME, type MemberInfo, balanceOf, groupPhase, inr, isAdmin, roleOf } from '../../../src/data/model';
@@ -7,7 +7,7 @@ import { useStore } from '../../../src/data/StoreProvider';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { Header } from '../../../src/ui/Header';
 import { Missing } from '../../../src/ui/Missing';
-import { Avatar, Button, Card, Field, Label, Screen, T, isHovered, styles } from '../../../src/ui/kit';
+import { Avatar, Button, Card, Divider, Field, Label, Screen, T, isHovered, styles, useWide } from '../../../src/ui/kit';
 import { useInvite } from '../../../src/ui/useInvite';
 
 /** Everyone in the group, with roles and balances. Admins remove people; the owner picks admins and can hand the group over. */
@@ -15,6 +15,7 @@ export default function Members() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { theme } = useTheme();
   const { state, dispatch } = useStore();
+  const wide = useWide();
   const group = state.groups.find((g) => g.id === id);
   const { invite, notice, sheet } = useInvite(group);
   const [name, setName] = useState('');
@@ -40,6 +41,14 @@ export default function Members() {
     setName('');
   };
 
+  // One person per row, with a line between them so each one's buttons clearly belong to them.
+  const rows = (list: MemberInfo[]) =>
+    list.map((m, i) => (
+      <Fragment key={m.id}>
+        {i ? <Divider /> : null}
+        {row(m)}
+      </Fragment>
+    ));
   const row = (m: MemberInfo) => {
     const b = balanceOf(state, group.id, m.id);
     const tags = [m.role === 'owner' ? 'Owner' : m.role === 'admin' ? 'Admin' : null, m.joined ? null : 'Not joined yet', m.active ? null : 'Left'].filter(Boolean);
@@ -47,7 +56,7 @@ export default function Members() {
     const promotable = owner && m.active && m.joined && m.id !== ME;
     const confirming = confirm && confirm.kind !== 'leave' && confirm.id === m.id ? confirm.kind : null;
     return (
-      <View key={m.id} style={{ gap: 10, paddingVertical: 6 }}>
+      <View style={{ gap: 12, paddingVertical: 8 }}>
         <Pressable
           accessibilityRole={m.id === ME ? undefined : 'button'}
           accessibilityLabel={m.id === ME ? undefined : `Chat and settle up with ${nameOf(m.id)}`}
@@ -123,21 +132,23 @@ export default function Members() {
             </View>
           </Card>
         ) : promotable || removable ? (
-          <View style={[styles.row, { gap: 8, marginLeft: 52, flexWrap: 'wrap' }]}>
+          // Under the name on laptops; full width on phones, where the buttons share out the rows evenly.
+          <View style={[styles.row, { gap: 8, marginLeft: wide ? 52 : 0, flexWrap: 'wrap' }]}>
             {promotable ? (
               <Button
                 title={m.role === 'admin' ? 'Remove admin' : 'Make admin'}
                 size="sm"
                 variant="secondary"
+                grow={!wide}
                 onPress={() => dispatch({ type: 'set_role', groupId: group.id, memberId: m.id, role: m.role === 'admin' ? 'member' : 'admin' })}
               />
             ) : null}
-            {promotable ? <Button title="Make owner" size="sm" variant="secondary" onPress={() => setConfirm({ kind: 'owner', id: m.id })} /> : null}
-            {removable ? <Button title="Remove" size="sm" variant="danger-text" onPress={() => setConfirm({ kind: 'remove', id: m.id })} /> : null}
+            {promotable ? <Button title="Make owner" size="sm" variant="secondary" grow={!wide} onPress={() => setConfirm({ kind: 'owner', id: m.id })} /> : null}
+            {removable ? <Button title="Remove" icon="user-minus" size="sm" variant="danger-outline" grow={!wide} onPress={() => setConfirm({ kind: 'remove', id: m.id })} /> : null}
           </View>
         ) : null}
         {owner && m.active && !m.joined ? (
-          <T size={12} color={theme.c.muted} style={{ marginLeft: 52 }}>
+          <T size={12} color={theme.c.muted} style={{ marginLeft: wide ? 52 : 0 }}>
             Can be made an admin once they join with your invite link.
           </T>
         ) : null}
@@ -162,7 +173,7 @@ export default function Members() {
 
       <Card>
         <Label>{`${current.length} ${current.length === 1 ? 'person' : 'people'}`}</Label>
-        {current.map(row)}
+        {rows(current)}
       </Card>
 
       {editable ? (
@@ -191,7 +202,7 @@ export default function Members() {
       {former.length ? (
         <Card>
           <Label>Left the group</Label>
-          {former.map(row)}
+          {rows(former)}
         </Card>
       ) : null}
 
@@ -225,7 +236,7 @@ export default function Members() {
           </>
         ) : (
           <View style={{ alignSelf: 'flex-start' }}>
-            <Button title="Leave group" icon="log-out" size="md" variant="danger-text" onPress={() => setConfirm({ kind: 'leave' })} />
+            <Button title="Leave group" icon="log-out" size="md" variant="danger-outline" onPress={() => setConfirm({ kind: 'leave' })} />
           </View>
         )}
       </Card>

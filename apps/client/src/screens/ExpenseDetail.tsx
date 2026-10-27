@@ -253,7 +253,7 @@ export function ExpenseDetail({ expense: e }: { expense: Expense }) {
             />
           ) : null}
           <Button title="Share" icon="send" size="md" variant="secondary" onPress={() => setSharing(true)} />
-          {mayDelete && editable ? <Button title={asAdmin ? 'Delete (admin)' : 'Delete'} size="md" variant="danger-text" onPress={() => setConfirmDelete(true)} /> : null}
+          {mayDelete && editable ? <Button title={asAdmin ? 'Delete (admin)' : 'Delete'} icon="trash-2" size="md" variant="danger-outline" onPress={() => setConfirmDelete(true)} /> : null}
         </View>
       ) : mayDelete && editable ? (
         <Button title="Restore" size="md" variant="secondary" onPress={() => dispatch({ type: 'restore', id: e.id })} />

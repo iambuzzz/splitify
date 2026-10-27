@@ -233,14 +233,17 @@ export function Button({
   icon,
   disabled,
   flex,
+  grow,
   size = 'lg',
 }: {
   title: string;
   onPress?: () => void;
-  variant?: 'primary' | 'secondary' | 'danger' | 'danger-text';
+  variant?: 'primary' | 'secondary' | 'danger' | 'danger-outline';
   icon?: ComponentProps<typeof Feather>['name'];
   disabled?: boolean;
   flex?: number;
+  /** Stretch to fill the row, still wrapping to the next line when there's no room (unlike `flex`). */
+  grow?: boolean;
   size?: 'lg' | 'md' | 'sm';
 }) {
   const { theme } = useTheme();
@@ -248,7 +251,8 @@ export function Button({
   const h = size === 'lg' ? 56 : size === 'md' ? 46 : 38;
   const primary = variant === 'primary';
   const filled = primary || variant === 'danger';
-  const fg = primary ? theme.c.onPrimary : variant === 'danger' ? (theme.dark ? theme.c.bg : '#FFFFFF') : variant === 'danger-text' ? theme.c.owe : theme.c.text;
+  const outline = variant === 'danger-outline';
+  const fg = primary ? theme.c.onPrimary : variant === 'danger' ? (theme.dark ? theme.c.bg : '#FFFFFF') : outline ? theme.c.owe : theme.c.text;
   return (
     <Pressable
       accessibilityRole="button"
@@ -260,14 +264,16 @@ export function Button({
           paddingHorizontal: size === 'lg' ? 20 : 14,
           borderRadius: receipt ? 999 : size === 'sm' ? 11 : theme.r.button,
           backgroundColor: primary ? theme.c.primary : variant === 'danger' ? theme.c.owe : variant === 'secondary' && !receipt ? theme.c.surface : 'transparent',
-          borderWidth: filled || variant === 'danger-text' ? 0 : receipt ? 2 : 1,
-          borderColor: receipt ? theme.c.text : theme.c.borderStrong,
+          borderWidth: filled ? 0 : receipt || outline ? 2 : 1,
+          // A red outline: clearly a button, but quieter than the filled one that confirms.
+          borderColor: outline ? theme.c.owe : receipt ? theme.c.text : theme.c.borderStrong,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
           opacity: disabled ? 0.4 : state.pressed ? 0.8 : isHovered(state) ? 0.9 : 1,
           flex,
+          flexGrow: grow ? 1 : undefined,
         },
         primary && theme.glow ? ({ boxShadow: `0 6px 24px ${theme.glow}` } as ViewStyle) : null,
       ]}

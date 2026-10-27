@@ -1,6 +1,9 @@
+# The landing page, the calculator and the guides are for search. The app's own screens need
+# sign-in (and carry noindex); invite links and downloads aren't pages.
 User-agent: *
-Allow: /$
 Disallow: /join
 Disallow: /group/
 Disallow: /auth/
 Disallow: /download/
+
+Sitemap: https://splitify.iambuzzdev.in/sitemap.xml

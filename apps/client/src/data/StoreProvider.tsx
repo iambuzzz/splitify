@@ -73,11 +73,26 @@ export interface DuplicateOf {
 const StoreContext = createContext<Store | null>(null);
 
 // Receipts are fetched with the sign-in token, then shown from a local blob: URL (kept while the app is open).
+// File storage sometimes stalls for a few seconds, so a failed load is tried twice more before giving up;
+// a file that isn't there (404) or a sign-in problem (401/403) isn't worth repeating.
+const RECEIPT_RETRY_MS = [1000, 3000];
+async function fetchReceiptPatiently(id: string): Promise<Blob> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchReceipt(id);
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      const wait = RECEIPT_RETRY_MS[attempt];
+      if (wait === undefined || status === 401 || status === 403 || status === 404) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
 const receiptUrls = new Map<string, Promise<string>>();
 const remoteReceiptUrl = (r: Receipt) => {
   let url = receiptUrls.get(r.id);
   if (!url) {
-    url = fetchReceipt(r.id).then((b) => URL.createObjectURL(b));
+    url = fetchReceiptPatiently(r.id).then((b) => URL.createObjectURL(b));
     url.catch(() => receiptUrls.delete(r.id));
     receiptUrls.set(r.id, url);
   }

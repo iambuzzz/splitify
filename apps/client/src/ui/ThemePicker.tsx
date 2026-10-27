@@ -4,11 +4,13 @@ import { useStore } from '../data/StoreProvider';
 import { useTheme } from '../theme/ThemeProvider';
 import { THEMES, THEME_ORDER } from '../theme/themes';
 import { Button, T, useSheetBottom, useWide } from './kit';
+import { useAppVersion } from './useAppVersion';
 
-/** Bottom sheet (centred dialog on wide screens) for switching themes, and signing out. */
+/** Bottom sheet (centred dialog on wide screens) for switching themes, signing out, and the app's version (with Update when there's a newer one). */
 export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { theme, setTheme } = useTheme();
   const { account } = useStore();
+  const app = useAppVersion();
   const wide = useWide();
   const bottom = useSheetBottom(32);
   return (
@@ -76,6 +78,33 @@ export function ThemePicker({ open, onClose }: { open: boolean; onClose: () => v
                   account.signOut();
                 }}
               />
+            </View>
+          ) : null}
+          {app.version ? (
+            <View
+              style={[
+                { flexDirection: 'row', alignItems: 'center', gap: 12 },
+                // A newer version stands out; otherwise the version sits quietly under a line.
+                app.update ? { borderRadius: 14, padding: 12, backgroundColor: theme.c.attnBg } : { borderTopWidth: 1, borderTopColor: theme.c.border, paddingTop: 12 },
+              ]}
+            >
+              <View style={{ flex: 1, gap: 1 }}>
+                <T size={13} weight={app.update ? 'bold' : 'regular'} color={app.update ? theme.c.attnText : theme.c.muted}>
+                  {app.update
+                    ? app.update.kind === 'download'
+                      ? `Splitify ${app.update.version} is out${app.update.mb ? ` · ${app.update.mb} MB` : ''}`
+                      : 'A new version of Splitify is ready'
+                    : `Splitify ${app.version}${app.where ? ` · ${app.where}` : ''}`}
+                </T>
+                <T size={12} color={app.update ? theme.c.attnText : theme.c.muted} style={{ opacity: app.update ? 0.85 : 1 }}>
+                  {app.update
+                    ? app.update.kind === 'download'
+                      ? `You have ${app.version}. Download, then open the file. Your groups stay as they are.`
+                      : `You have ${app.version}. Updating takes a second; your groups stay as they are.`
+                    : 'Up to date'}
+                </T>
+              </View>
+              {app.update ? <Button title="Update" icon={app.update.kind === 'download' ? 'download' : 'refresh-cw'} size="sm" onPress={app.update.go} /> : null}
             </View>
           ) : null}
         </Pressable>

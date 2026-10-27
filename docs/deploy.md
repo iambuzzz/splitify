@@ -16,7 +16,7 @@ The web app and the API both run on one AWS EC2 server. Set up 2026-10-23.
 ```
 deploy/deploy.sh
 ```
-It bundles the API into one file with esbuild, builds the web app with `EXPO_PUBLIC_API_URL` set to the live API, adds the landing page (`apps/landing/index.html` → `landing.html`, with the app's scripts prefetched once it has loaded), copies both with rsync, installs the Caddyfile and service unit, restarts the API and waits for `/health`.
+It bundles the API into one file with esbuild, builds the web app with `EXPO_PUBLIC_API_URL` set to the live API, adds the landing page (`apps/landing/index.html` → `landing.html`, with the app's scripts prefetched once it has loaded) and the calculator and guide pages (`apps/landing/pages/*.html` → `/split-…`, built with `sitemap.xml` by `apps/landing/build-pages.mjs`), stamps the web build with a build id and writes `/version.json` (open copies of the website compare the two and offer **Update** in the Theme panel), copies both with rsync, installs the Caddyfile and service unit, restarts the API and waits for `/health`.
 
 After changing a key in `.env.local` (Resend, Supabase, database): `deploy/push-env.sh`. It rebuilds `/etc/splitify/api.env` (mode 640, root:splitify) from `.env.local`, replacing the server-only settings (`HOST`, `PORT`, `TRUST_PROXY=1`, `CORS_ORIGINS`, `APP_URL`, `DATABASE_CA_CERT`). Values go over SSH and are never printed. (It writes with `cat` and `mv`, not `install /dev/stdin`: Ubuntu 26.04's Rust coreutils `install` fails on that when the file already exists.) Then restart: `ssh … sudo systemctl restart splitify-api`.
 
@@ -34,12 +34,12 @@ Android App Links (`/join`, `/group` open the app) need the signing key's SHA-25
 
 ## Files
 - `deploy/setup-server.sh`: one-time setup, safe to rerun. 1 GB swap, ufw (SSH, 80, 443), Node.js 24 LTS from NodeSource and Caddy from its official repo (both signed apt repos), the `splitify` service user and folders.
-- `deploy/Caddyfile`: HTTPS for both names; the landing page at `/` (unless the query has `code=` or `error=`, which are sign-in returns for the app); `/download/*` from `/srv/splitify/downloads` as APK downloads; one-page-app fallback to `index.html` for every other path; long cache for hashed `/_expo/static` files, `no-cache` for the rest.
+- `deploy/Caddyfile`: HTTPS for both names; the landing page at `/` (unless the query has `code=` or `error=`, which are sign-in returns for the app); `/download/*` from `/srv/splitify/downloads` as APK downloads; a path with a matching `.html` file (the guides) serves that page; one-page-app fallback to `index.html` for every other path; long cache for hashed `/_expo/static` files, `no-cache` for the rest.
 - `deploy/push-apk.sh`: puts a new Android build on the website (above).
 - `deploy/splitify-api.service`: runs `node --env-file=/etc/splitify/api.env server.mjs` as `splitify`, restarts on failure, 600 MB memory cap, filesystem read-only.
 
 ## Look at it
-- Logs: `sudo journalctl -u splitify-api -f`
+- Logs: `sudo journalctl -u splitify-api -f`. A slow or failing bill-photo read from Supabase Storage logs `receipt storage read failed` with the status; the API tries each read twice (8 s each) and keeps about 40 MB of recently opened bills in memory.
 - Status: `systemctl status splitify-api caddy`
 - Ubuntu security updates install on their own (`unattended-upgrades`).
 
