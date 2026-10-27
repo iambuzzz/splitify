@@ -52,6 +52,8 @@ const register = (sub: device.Subscription) =>
     ? api.send('POST', '/push/devices', { id: deviceId, kind: sub.kind, token: sub.token, keys: sub.keys, label: device.label(), prefs: state.prefs })
     : Promise.resolve();
 
+const webPushKey = async () => (await api.get('/push/config')).webPushKey as string | null;
+
 let starting: Promise<void> | null = null;
 const start = () => (starting ??= load());
 /** Reads what this device had, and refreshes its subscription with the server (tokens change now and then). */
@@ -74,8 +76,11 @@ async function load() {
     return set({ status: perm === 'denied' ? 'blocked' : 'off', prefs: EMPTY, askAfter });
   }
   set({ status: 'on', prefs, askAfter });
-  const sub = await device.current().catch(() => null);
+  // Allowed but the subscription is gone (site data cleared, browser dropped it): subscribe again,
+  // without asking, so "On" here always means the server can reach this device.
+  const sub = (await device.current().catch(() => null)) ?? (await device.subscribe(webPushKey).catch(() => null));
   if (sub) register(sub).catch(() => {});
+  else set({ status: 'off' });
 }
 
 function subscribe(l: () => void) {
@@ -94,7 +99,7 @@ export async function turnOn() {
     return set({ busy: false, status: 'on' });
   }
   try {
-    const sub = await device.subscribe(async () => (await api.get('/push/config')).webPushKey as string | null);
+    const sub = await device.subscribe(webPushKey);
     if (!sub) {
       const perm = await device.permission().catch(() => 'default' as const);
       return set({ busy: false, status: perm === 'denied' ? 'blocked' : 'off' });

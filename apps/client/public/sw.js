@@ -24,7 +24,8 @@ self.addEventListener('push', (event) => {
         tag: data.tag,
         renotify: Boolean(data.tag),
         icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
+        // Android draws the status-bar icon from the shape alone: a white mark on transparent, or it's a white square.
+        badge: '/icons/badge-96.png',
         data: { url: data.url || '/groups' },
       });
     }),
