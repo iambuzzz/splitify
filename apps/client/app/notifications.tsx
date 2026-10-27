@@ -1,13 +1,13 @@
 import { Platform, Pressable, Switch, View } from 'react-native';
 import { groupPhase } from '../src/data/model';
-import { label } from '../src/data/pushDevice';
+import { hint, label } from '../src/data/pushDevice';
 import { useStore } from '../src/data/StoreProvider';
 import { useTheme } from '../src/theme/ThemeProvider';
 import { Header } from '../src/ui/Header';
 import { Button, Card, Divider, Label, Screen, T } from '../src/ui/kit';
 import { KINDS, type Kind, isOn, setPrefs, turnOff, turnOn, useNotifications } from '../src/ui/useNotifications';
 
-/** A setting that's on or off: the whole row toggles it. */
+/** A setting that's on or off: the whole row toggles it (the switch only shows the state; on the web both took the tap). */
 function Row({ title, hint, value, onChange, a11y }: { title: string; hint?: string; value: boolean; onChange: (v: boolean) => void; a11y: string }) {
   const { theme } = useTheme();
   return (
@@ -22,15 +22,16 @@ function Row({ title, hint, value, onChange, a11y }: { title: string; hint?: str
           </T>
         ) : null}
       </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: theme.c.border, true: theme.c.primary }}
-        thumbColor={Platform.OS === 'android' ? (value ? theme.c.onPrimary : theme.c.surface) : undefined}
-        {...(Platform.OS === 'web' ? ({ activeThumbColor: theme.c.onPrimary } as object) : {})}
-        accessibilityElementsHidden
-        importantForAccessibility="no"
-      />
+      <View pointerEvents="none">
+        <Switch
+          value={value}
+          trackColor={{ false: theme.c.border, true: theme.c.primary }}
+          thumbColor={Platform.OS === 'android' ? (value ? theme.c.onPrimary : theme.c.surface) : undefined}
+          {...(Platform.OS === 'web' ? ({ activeThumbColor: theme.c.onPrimary } as object) : {})}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      </View>
     </Pressable>
   );
 }
@@ -67,7 +68,12 @@ export default function Notifications() {
               : 'Notifications are off for Splitify in your phone’s settings. Open Settings, then Apps, Splitify, Notifications, and allow them.'}
           </T>
         ) : on ? (
-          <Row title="On" hint="Who did what, never amounts." value a11y="Notifications on this device" onChange={(v) => (v ? turnOn() : turnOff())} />
+          <>
+            <T size={15}>On. You hear who did what, never amounts.</T>
+            <T size={13} color={theme.c.muted}>
+              {hint()}
+            </T>
+          </>
         ) : (
           <T size={15} color={theme.c.muted}>
             Off. Turn on to hear when someone pays you, suggests a change or asks about a bill. Names only, never amounts.
@@ -84,6 +90,7 @@ export default function Notifications() {
           </T>
         ) : null}
         {n.status === 'off' && n.support === 'ok' ? <Button title="Turn on notifications" icon="bell" size="md" disabled={n.busy} onPress={turnOn} /> : null}
+        {on ? <Button title="Turn off on this device" icon="bell-off" size="md" variant="secondary" disabled={n.busy} onPress={turnOff} /> : null}
       </Card>
 
       {on ? (

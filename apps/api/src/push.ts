@@ -104,7 +104,8 @@ export function notesFor(ev: PushEvent): Note[] {
     case 'message.pair':
       return (ev.pair ?? [])
         .filter((u) => u !== ev.actorUser)
-        .map((user) => ({ user, kind: 'direct' as const, groupId: g, title: ev.groupName, body: `${actor} sent you a message`, url: `/group/${g}/with/${ev.pairWith?.[user] ?? ''}`, batch: `direct:${g}:${ev.actorUser}`, actor }));
+        // Sent straight away (a reply is often waited for); a newer message replaces the older one.
+        .map((user) => ({ user, kind: 'direct' as const, groupId: g, title: ev.groupName, body: `${actor} sent you a message`, url: `/group/${g}/with/${ev.pairWith?.[user] ?? ''}`, actor }));
     case 'settlement.recorded':
       // Recorded by the payer: the receiver confirms. Recorded by the receiver: it already counts.
       return p.status === 'awaiting_confirmation'
@@ -169,11 +170,23 @@ export interface PushConfig {
   sendWeb?: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: string, opts: webpush.RequestOptions) => Promise<unknown>;
   log?: { info(o: object, msg: string): void; warn(o: object, msg: string): void };
   now?: () => number;
+  /** How long after sending to ask Expo whether Google accepted the notifications. */
+  receiptDelayMs?: number;
 }
 
 /** No user: the sender only calls the push_* functions, which run with their own rights. */
 const NOBODY = '00000000-0000-0000-0000-000000000000';
 const EXPO_URL = 'https://exp.host/--/api/v2/push/send';
+const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
+
+/** What happened to one notification for one device. */
+interface Sent {
+  device: string;
+  ticket?: string;
+  error?: string;
+  /** The push service says this device no longer exists: stop sending to it. */
+  gone?: boolean;
+}
 
 export function pushSender(cfg: PushConfig) {
   const http = cfg.fetch ?? fetch;
@@ -185,36 +198,32 @@ export function pushSender(cfg: PushConfig) {
     : null;
   /** Gathered notes, per person and batch key: sent when `due` passes. */
   const waiting = new Map<string, { due: number; notes: Note[] }>();
+  const receiptDelayMs = cfg.receiptDelayMs ?? 15_000;
 
-  async function deliver(notes: Note[]) {
-    if (!notes.length) return;
-    const devices = await cfg.db.asUser(NOBODY, async (tx) => {
-      const r = await tx.query<Device>('select * from app.push_devices_of($1)', [uniq(notes.map((n) => n.user))]);
-      return r.rows;
-    });
-    const gone: string[] = [];
+  /** Sends each note to its device. Errors come back per device (Expo's code, or the browser push service's status). */
+  async function send(items: { device: Device; note: Note }[]): Promise<Sent[]> {
+    const out: Sent[] = [];
     const expo: { device: Device; message: object }[] = [];
     const web: Promise<void>[] = [];
-    for (const note of notes) {
-      for (const d of devices) {
-        if (d.user_id !== note.user || !wants(d.prefs, note)) continue;
-        // One notification per group and kind replaces the previous one instead of piling up.
-        const tag = note.batch ?? `${note.kind}:${note.groupId}`;
-        if (d.kind === 'expo') {
-          expo.push({ device: d, message: { to: d.token, title: note.title, body: note.body, data: { url: note.url, tag }, sound: 'default', priority: 'high', channelId: 'default' } });
-        } else if (webOpts && d.keys) {
-          const payload = JSON.stringify({ title: note.title, body: note.body, url: note.url, tag });
-          web.push(
-            sendWeb({ endpoint: d.token, keys: d.keys }, payload, { ...webOpts, urgency: note.kind === 'bills' || note.kind === 'chat' ? 'normal' : 'high' }).then(
-              () => {},
-              (err: { statusCode?: number }) => {
-                // 404/410: the browser dropped this subscription (notifications blocked, site data cleared).
-                if (err.statusCode === 404 || err.statusCode === 410) gone.push(d.id);
-                else cfg.log?.warn({ status: err.statusCode }, 'web push not sent');
-              },
-            ),
-          );
-        }
+    for (const { device: d, note } of items) {
+      // One notification per group and kind replaces the previous one instead of piling up.
+      const tag = note.batch ?? `${note.kind}:${note.groupId}`;
+      if (d.kind === 'expo') {
+        expo.push({ device: d, message: { to: d.token, title: note.title, body: note.body, data: { url: note.url, tag }, sound: 'default', priority: 'high', channelId: 'default' } });
+      } else if (!webOpts || !d.keys) {
+        out.push({ device: d.id, error: 'web push keys missing on the server' });
+      } else {
+        const payload = JSON.stringify({ title: note.title, body: note.body, url: note.url, tag });
+        web.push(
+          sendWeb({ endpoint: d.token, keys: d.keys }, payload, { ...webOpts, urgency: note.kind === 'bills' || note.kind === 'chat' ? 'normal' : 'high' }).then(
+            () => void out.push({ device: d.id }),
+            (err: { statusCode?: number; message?: string }) => {
+              // 404/410: the browser dropped this subscription (notifications blocked, site data cleared).
+              const gone = err.statusCode === 404 || err.statusCode === 410;
+              out.push({ device: d.id, error: `web push ${err.statusCode ?? err.message ?? 'failed'}`, gone });
+            },
+          ),
+        );
       }
     }
     // Expo takes up to 100 messages per request.
@@ -222,21 +231,71 @@ export function pushSender(cfg: PushConfig) {
       const chunk = expo.slice(i, i + 100);
       try {
         const res = await http(EXPO_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(chunk.map((c) => c.message)) });
-        const json = (await res.json().catch(() => null)) as { data?: { status: string; details?: { error?: string } }[] } | null;
+        const json = (await res.json().catch(() => null)) as { data?: { status: string; id?: string; message?: string; details?: { error?: string } }[] } | null;
         if (!res.ok || !json?.data) {
-          cfg.log?.warn({ status: res.status }, 'expo push not sent');
+          chunk.forEach((c) => out.push({ device: c.device.id, error: `expo ${res.status}` }));
           continue;
         }
         json.data.forEach((t, j) => {
-          if (t.status === 'error' && t.details?.error === 'DeviceNotRegistered') gone.push(chunk[j]!.device.id);
+          const device = chunk[j]!.device.id;
+          if (t.status === 'ok') out.push({ device, ticket: t.id });
+          else out.push({ device, error: t.details?.error ?? t.message ?? 'expo error', gone: t.details?.error === 'DeviceNotRegistered' });
         });
       } catch (err) {
-        cfg.log?.warn({ error: err instanceof Error ? err.message : 'unknown' }, 'expo push not sent');
+        chunk.forEach((c) => out.push({ device: c.device.id, error: err instanceof Error ? err.message : 'expo unreachable' }));
       }
     }
     await Promise.all(web);
-    if (gone.length) {
-      await cfg.db.asUser(NOBODY, (tx) => tx.query('select app.push_forget($1)', [uniq(gone)]));
+    return out;
+  }
+
+  /**
+   * Expo accepting a message (a ticket) isn't delivery: Google can still refuse it, for example when
+   * the Firebase key is wrong. The receipt says so, a few seconds later.
+   */
+  async function receipts(sent: Sent[]): Promise<Sent[]> {
+    const byTicket = new Map(sent.filter((s) => s.ticket).map((s) => [s.ticket!, s]));
+    if (!byTicket.size) return [];
+    try {
+      const res = await http(EXPO_RECEIPTS_URL, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ ids: [...byTicket.keys()] }) });
+      const json = (await res.json().catch(() => null)) as { data?: Record<string, { status: string; message?: string; details?: { error?: string } }> } | null;
+      return Object.entries(json?.data ?? {})
+        .filter(([, r]) => r.status === 'error')
+        .map(([ticket, r]) => ({ device: byTicket.get(ticket)!.device, error: r.details?.error ?? r.message ?? 'not delivered', gone: r.details?.error === 'DeviceNotRegistered' }));
+    } catch {
+      return [];
+    }
+  }
+
+  const forget = async (failed: Sent[]) => {
+    const gone = uniq(failed.filter((f) => f.gone).map((f) => f.device));
+    if (gone.length) await cfg.db.asUser(NOBODY, (tx) => tx.query('select app.push_forget($1)', [gone]));
+  };
+  const report = (failed: Sent[], stage: string) => {
+    for (const f of failed) cfg.log?.warn({ device: f.device, error: f.error, stage }, 'notification not delivered');
+  };
+
+  async function deliver(notes: Note[]) {
+    if (!notes.length) return;
+    const devices = await cfg.db.asUser(NOBODY, async (tx) => {
+      const r = await tx.query<Device>('select * from app.push_devices_of($1)', [uniq(notes.map((n) => n.user))]);
+      return r.rows;
+    });
+    const items = notes.flatMap((note) => devices.filter((d) => d.user_id === note.user && wants(d.prefs, note)).map((device) => ({ device, note })));
+    const sent = await send(items);
+    const failed = sent.filter((s) => s.error);
+    cfg.log?.info({ notes: notes.length, kinds: uniq(notes.map((n) => n.kind)), devices: items.length, delivered: sent.length - failed.length, failed: failed.length }, 'notifications sent');
+    report(failed, 'send');
+    await forget(failed);
+    if (sent.some((s) => s.ticket)) {
+      setTimeout(() => {
+        receipts(sent)
+          .then(async (late) => {
+            report(late, 'receipt');
+            await forget(late);
+          })
+          .catch(() => {});
+      }, receiptDelayMs).unref?.();
     }
   }
 

@@ -27,6 +27,16 @@ export function label(): string {
   return `${deviceName(navigator.userAgent, navigator.maxTouchPoints)} ${installed() ? 'app' : 'browser'}`;
 }
 
+/** Where to look when they're on here but don't show: the computer or phone can hide the browser's. */
+export function hint(): string {
+  const d = deviceName(navigator.userAgent, navigator.maxTouchPoints);
+  if (d === 'Android') return 'Not seeing them? Your phone may be hiding them: open Settings, then Apps, Chrome (or the browser you use), Notifications, and allow them.';
+  if (d === 'Mac') return 'Not seeing them? Your Mac may be hiding them: open System Settings, then Notifications, and allow them for your browser, and for Splitify if you installed it.';
+  if (d === 'Windows') return 'Not seeing them? Windows may be hiding them: open Settings, then System, Notifications, and allow them for your browser.';
+  if (d === 'iPhone' || d === 'iPad') return 'Not seeing them? Open Settings, then Notifications, Splitify, and allow them.';
+  return 'Not seeing them? Check that your computer allows notifications for your browser.';
+}
+
 function key(base64url: string): Uint8Array<ArrayBuffer> {
   const pad = '='.repeat((4 - (base64url.length % 4)) % 4);
   const raw = atob((base64url + pad).replace(/-/g, '+').replace(/_/g, '/'));

@@ -30,8 +30,9 @@ async function setup() {
 }
 
 /** A sender with fake push services: records what would have gone out. */
-function fakeSender(opts: { expoError?: string; webStatus?: number } = {}) {
+function fakeSender(opts: { expoError?: string; webStatus?: number; receiptError?: string } = {}) {
   let clock = 1_000_000;
+  const warnings: { error?: string; stage?: string }[] = [];
   const expo: { to: string; title: string; body: string; data: { url: string } }[] = [];
   const web: { endpoint: string; payload: { title: string; body: string; url: string } }[] = [];
   const sender = pushSender({
@@ -39,7 +40,13 @@ function fakeSender(opts: { expoError?: string; webStatus?: number } = {}) {
     vapid: { publicKey: 'pub', privateKey: 'priv', subject: 'https://splitify.example' },
     batchMs: 120_000,
     now: () => clock,
-    fetch: (async (_url: string, init: RequestInit) => {
+    receiptDelayMs: 0,
+    log: { info: () => {}, warn: (o: object) => void warnings.push(o) },
+    fetch: (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/getReceipts')) {
+        const { ids } = JSON.parse(init.body as string) as { ids: string[] };
+        return new Response(JSON.stringify({ data: Object.fromEntries(ids.map((i) => [i, opts.receiptError ? { status: 'error', details: { error: opts.receiptError } } : { status: 'ok' }])) }), { status: 200 });
+      }
       const msgs = JSON.parse(init.body as string);
       expo.push(...msgs);
       return new Response(JSON.stringify({ data: msgs.map(() => (opts.expoError ? { status: 'error', details: { error: opts.expoError } } : { status: 'ok', id: 'x' })) }), { status: 200 });
@@ -49,7 +56,7 @@ function fakeSender(opts: { expoError?: string; webStatus?: number } = {}) {
       web.push({ endpoint: sub.endpoint, payload: JSON.parse(payload) });
     },
   });
-  return { sender, expo, web, later: (ms: number) => (clock += ms) };
+  return { sender, expo, web, warnings, later: (ms: number) => (clock += ms) };
 }
 
 describe('push: devices', () => {
@@ -153,6 +160,19 @@ describe('push: sending', () => {
   });
 });
 
+describe('push: delivery problems', () => {
+  it('logs notifications Google refused after Expo took them', async () => {
+    const t = await setup();
+    const f = fakeSender({ receiptError: 'InvalidCredentials' });
+    await f.sender.tick();
+    ok(await t.asha.send('POST', '/push/devices', { id: crypto.randomUUID(), kind: 'expo', token: 'ExponentPushToken[refused]' }), 201);
+    ok(await t.ben.send('POST', `/groups/${t.groupId}/settlements`, { from: t.b, to: t.a, amount: '50000', method: 'upi' }), 201);
+    await f.sender.tick();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(f.warnings).toContainEqual(expect.objectContaining({ error: 'InvalidCredentials', stage: 'receipt' }));
+  });
+});
+
 describe('push: what each change says', () => {
   const ev = (over: Partial<PushEvent>): PushEvent => ({
     id: 'e', type: 'expense.created', groupId: 'g', groupName: 'Flat 302', actorName: 'Riya', actorUser: 'u-riya', entityId: 'x', expenseId: 'x', expenseTitle: 'Wi-Fi',
@@ -166,6 +186,9 @@ describe('push: what each change says', () => {
     expect(notesFor(ev({ type: 'message.question', actorName: 'Dev', actorUser: 'u-dev' }))[0]!.body).toBe('Dev asked about Wi-Fi');
     expect(notesFor(ev({ type: 'message.text', actorName: 'Dev', actorUser: 'u-dev' })).every((n) => n.kind === 'chat')).toBe(true);
     expect(notesFor(ev({ type: 'group.updated' }))).toEqual([]);
+    // Settle-up messages go straight away, not gathered like bills.
+    const dm = notesFor(ev({ type: 'message.pair', pair: ['u-riya', 'u-sam'], pairWith: { 'u-sam': 'm-riya' } }));
+    expect(dm.map((n) => [n.user, n.kind, n.url, n.batch])).toEqual([['u-sam', 'direct', '/group/g/with/m-riya', undefined]]);
   });
 
   it('chat on bills is off unless switched on; muting a group silences everything in it', () => {

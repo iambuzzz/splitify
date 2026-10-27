@@ -9,9 +9,9 @@ import type { Subscription, Support } from './pushTypes';
 
 export type { Subscription, Support } from './pushTypes';
 
-// With Splitify open, the screen already shows the change: no banner, only the list.
+// With Splitify open the banner still shows: the change may be in another group or screen.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }),
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
 export function support(): Support {
@@ -25,6 +25,10 @@ export async function permission(): Promise<'granted' | 'denied' | 'default'> {
 
 export function label(): string {
   return 'Android app';
+}
+
+export function hint(): string {
+  return 'Not seeing them? Open Settings, then Apps, Splitify, Notifications, and allow them. If your phone saves battery by stopping apps, let Splitify run in the background.';
 }
 
 async function token(): Promise<Subscription> {
